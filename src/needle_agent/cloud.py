@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -123,10 +124,26 @@ class CloudAgent:
         )
 
 
+def user_config_dir(system: str | None = None, env: dict[str, str] | None = None,
+                    home: Path | None = None) -> Path:
+    """Resolve the conventional per-user config directory without a fixed machine path."""
+    system = sys.platform if system is None else system
+    env = os.environ if env is None else env
+    home = Path.home() if home is None else Path(home)
+    if system == "win32":
+        base = env.get("APPDATA") or str(home / "AppData" / "Roaming")
+        return Path(base) / "needle-agent"
+    if system == "darwin":
+        return home / "Library" / "Application Support" / "needle-agent"
+    xdg = env.get("XDG_CONFIG_HOME", "")
+    base = Path(xdg) if xdg and Path(xdg).is_absolute() else home / ".config"
+    return base / "needle-agent"
+
+
 class CloudSettings:
     """Persist non-secret preferences; use env vars or explicitly opt in to key storage."""
     def __init__(self, path: Path | None = None):
-        self.path = (path or Path.home() / ".config" / "needle-agent" / "cloud.json").expanduser()
+        self.path = (path or user_config_dir() / "cloud.json").expanduser()
 
     def load(self) -> dict[str, str]:
         try:

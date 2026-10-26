@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -270,11 +271,13 @@ def main() -> None:
     args = parser.parse_args()
     staged = Path(__file__).resolve().parents[2] / "google_drive"
     if args.weights is None:
-        candidate = staged / "needle3.cact"
+        configured = os.environ.get("NEEDLE3_WEIGHTS")
+        candidate = Path(configured).expanduser() if configured else staged / "needle3.cact"
         args.weights = str(candidate) if candidate.is_file() else None
     if args.engine is None:
+        configured = os.environ.get("NEEDLE3_LIB_PATH")
         engine_name = "libneedle3.dll" if sys.platform == "win32" else "libneedle3.dylib" if sys.platform == "darwin" else "libneedle3.so"
-        candidate = staged / engine_name
+        candidate = Path(configured).expanduser() if configured else staged / engine_name
         args.engine = str(candidate) if candidate.is_file() else None
     NeedleTUI(args.workspace, weights=args.weights, engine=args.engine).run()
 

@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from needle_agent.cloud import (CloudAgent, CloudAPIError, CloudSettings,
-                                detect_models, normalize_base_url)
+                                detect_models, normalize_base_url, user_config_dir)
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -85,6 +85,16 @@ class CloudAPITests(unittest.TestCase):
         review_input = json.loads(self.server.last_payload["messages"][1]["content"])
         self.assertEqual(review_input["local_actions"][0]["result"]["text"], "hello")
         self.assertNotIn("tools", self.server.last_payload)
+
+    def test_user_config_directory_respects_platform_conventions_and_xdg(self):
+        self.assertEqual(user_config_dir("linux", {"XDG_CONFIG_HOME": "/tmp/custom-config"}, Path("/home/test")),
+                         Path("/tmp/custom-config/needle-agent"))
+        self.assertEqual(user_config_dir("linux", {}, Path("/home/test")),
+                         Path("/home/test/.config/needle-agent"))
+        self.assertEqual(str(user_config_dir("win32", {"APPDATA": "D:/Profiles/test/AppData/Roaming"})),
+                         "D:/Profiles/test/AppData/Roaming/needle-agent")
+        self.assertEqual(user_config_dir("darwin", {}, Path("/Users/test")),
+                         Path("/Users/test/Library/Application Support/needle-agent"))
 
     def test_settings_do_not_persist_key_without_explicit_opt_in(self):
         with tempfile.TemporaryDirectory() as temp:

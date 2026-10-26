@@ -18,7 +18,7 @@ To install and immediately launch the agent:
 python install.py --run
 ```
 
-The installer supports Windows, macOS, and Linux. Options include `--workspace PATH`, `--venv PATH`, `--weights PATH`, `--engine PATH`, and `--no-venv` (install into the active Python environment instead). On Windows, use `py install.py` if `python` is not on `PATH`. Launch the full-screen terminal UI with `needle-agent-tui` (or select `--run` to start the interactive CLI after setup). If no compatible local model/engine pair is staged, Needle may download/cache runtime assets on first launch, which requires network access. The installer does not fetch or install arbitrary OS tools, request elevated privileges, or modify system settings.
+The installer supports Windows, macOS, and Linux. Options include `--workspace PATH`, `--venv PATH`, `--weights PATH`, `--engine PATH`, and `--no-venv` (install into the active Python environment instead). On Windows, use `py install.py` if `python` is not on `PATH`. Launch the full-screen terminal UI with `needle-agent-tui` (or select `--run` to start the interactive CLI after setup). The TUI accepts `NEEDLE3_WEIGHTS` and `NEEDLE3_LIB_PATH` environment variables for model assets; otherwise, it detects the repository's optional `google_drive/` staging directory. If no compatible local model/engine pair is staged, Needle may download/cache runtime assets on first launch, which requires network access. The installer does not fetch or install arbitrary OS tools, request elevated privileges, or modify system settings.
 
 ## Terminal UI and cloud APIs
 
@@ -26,14 +26,15 @@ The installer supports Windows, macOS, and Linux. Options include `--workspace P
 
 The cloud model is strictly a planner and reviewer: it receives the user's request and returns advisory steps, but it receives no tool schemas and cannot execute local actions. The local Needle model receives the user's request plus those untrusted planning notes, proposes actions, and the local host validates and executes only approved, allowlisted tools. Afterward, the cloud model reviews the recorded outcomes and returns a completion assessment; it cannot take follow-up actions. Each local action approval warns that its result may be shared with the configured provider for review. No workspace content is sent just because a provider is configured.
 
-Remote endpoints must use HTTPS; plain HTTP is allowed only for localhost. The API key is held in memory for the session by default and is not written to disk. The optional **Remember API key** checkbox stores it in `~/.config/needle-agent/cloud.json` with restrictive file permissions where supported; on Windows, protect the user account and profile. Base URL and selected model are saved without a key. Environment variable `NEEDLE_API_KEY` can supply the key instead. Cloud support targets OpenAI-compatible `/models` and `/chat/completions` endpoints; provider-specific APIs requiring different authentication or request formats are not supported. The cloud provider receives user prompts for planning and approved local action outcomes for review; do not use cloud mode for data you cannot share with that provider.
+Remote endpoints must use HTTPS; plain HTTP is allowed only for localhost. The API key is held in memory for the session by default and is not written to disk. The optional **Remember API key** checkbox stores it in the platform's user configuration directory (for example, `$XDG_CONFIG_HOME/needle-agent/cloud.json` on Linux) with restrictive file permissions where supported; on Windows, protect the user account and profile. Base URL and selected model are saved without a key. Environment variable `NEEDLE_API_KEY` can supply the key instead. Cloud support targets OpenAI-compatible `/models` and `/chat/completions` endpoints; provider-specific APIs requiring different authentication or request formats are not supported. The cloud provider receives user prompts for planning and approved local action outcomes for review; do not use cloud mode for data you cannot share with that provider.
 
 
 For a manual install, Python 3.10+ is required:
 
 ```sh
 python -m venv .venv
-. .venv/bin/activate        # Windows: .venv\\Scripts\\activate
+source .venv/bin/activate   # macOS/Linux
+. .venv\Scripts\Activate.ps1  # Windows PowerShell
 python -m pip install -e .
 needle-agent --workspace ./needle-workspace
 ```
