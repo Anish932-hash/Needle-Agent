@@ -393,17 +393,18 @@ class NeedleTUI(App[None]):
         if not prompt:
             return
 
-        provider = str(self.query_one("#provider", Select).value or "local")
+        try:
+            provider_value = self.query_one("#provider", Select).value
+        except Exception:
+            return
+        provider = provider_value if isinstance(provider_value, str) and provider_value in self.MODE_LABELS else "local"
         prompt_box.value = ""
-        prompt_box.disabled = True
-        self.query_one("#send", Button).disabled = True
-        self.query_one("#provider", Select).disabled = True
-        self.query_one("#clear-transcript", Button).disabled = True
         self._busy = True
         log: RichLog | None = None
         final_status = "Ready · request finished; inspect the transcript and verification result"
 
         try:
+            self._set_request_controls(True)
             log = self.query_one("#transcript", RichLog)
             log.write(Text())
             _write_log(log, "You", prompt, "bold green")
