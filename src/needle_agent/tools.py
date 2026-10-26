@@ -160,11 +160,23 @@ class Workspace:
         temp_name = None
         temp_fd = None
         try:
+            try:
+                existing = os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                target_mode = 0o666
+            else:
+                if stat.S_ISLNK(existing.st_mode):
+                    raise ValueError("Destination changed to a symlink during write")
+                if not stat.S_ISREG(existing.st_mode):
+                    raise ValueError("Destination is not a regular file")
+                # Atomic replacement should not silently widen an existing file's
+                # permissions; preserve its mode when replacing it.
+                target_mode = stat.S_IMODE(existing.st_mode)
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
             for _ in range(8):
                 candidate = ".needle-write-" + secrets.token_hex(8)
                 try:
-                    temp_fd = os.open(candidate, flags, 0o666, dir_fd=parent_fd)
+                    temp_fd = os.open(candidate, flags, target_mode, dir_fd=parent_fd)
                     temp_name = candidate
                     break
                 except FileExistsError:
