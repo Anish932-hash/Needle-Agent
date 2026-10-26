@@ -37,10 +37,10 @@ def _matches_query(query: str, haystack: str) -> bool:
 class Workspace:
     """A workspace with a central path policy and descriptor-relative file I/O.
 
-    On POSIX systems with dir_fd and O_NOFOLLOW support, file reads and writes
-    walk from an already-open workspace directory. Writes use a temporary file
-    and atomic rename, preventing a path component or final symlink from being
-    swapped to redirect the write after validation.
+    On POSIX systems with dir_fd and O_NOFOLLOW support, read_file and
+    write_file walk from an already-open workspace directory. Writes use a
+    temporary file and atomic rename, preventing a path component or final
+    symlink from being swapped to redirect the write after validation.
     """
 
     def __init__(self, root: Path):
