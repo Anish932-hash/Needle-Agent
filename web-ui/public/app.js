@@ -246,6 +246,7 @@ async function loadStatus() {
     const [status, settings] = await Promise.all([api("/api/status"), api("/api/settings")]);
     elements.workspace.textContent = status.workspace || "Workspace ready";
     keyConfigured = Boolean(settings.settings?.key_configured);
+    elements.rememberKey.checked = Boolean(settings.settings?.key_saved_on_device);
     elements.baseUrl.value = settings.settings?.base_url || "https://api.openai.com/v1";
     if (settings.settings?.model) {
       elements.model.replaceChildren(new Option(settings.settings.model, settings.settings.model));
@@ -351,6 +352,7 @@ async function loadSettings() {
     const settings = result.settings || {};
     elements.baseUrl.value = settings.base_url || "https://api.openai.com/v1";
     keyConfigured = Boolean(settings.key_configured);
+    elements.rememberKey.checked = Boolean(settings.key_saved_on_device);
     elements.keyHint.textContent = keyConfigured
       ? "A key is already available to this session. Leave this field blank to reuse it; the existing key will never be displayed."
       : "The key is kept in memory by default and is not shown again.";
@@ -403,6 +405,7 @@ elements.settingsForm.addEventListener("submit", async (event) => {
       }),
     });
     keyConfigured = Boolean(result.settings?.key_configured);
+    elements.rememberKey.checked = Boolean(result.settings?.key_saved_on_device);
     elements.apiKey.value = "";
     elements.keyHint.textContent = keyConfigured
       ? "A key is available to this session. Leave the field blank to reuse it; it will never be displayed."
