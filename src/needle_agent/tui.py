@@ -192,7 +192,7 @@ class NeedleTUI(App[None]):
         log.write(f"\n[bold green]You[/bold green]  {prompt}")
         provider = self.query_one("#provider", Select).value
         try:
-            if provider == "cloud":
+            if provider in {"cloud", "hybrid"}:
                 base = self.query_one("#base-url", Input).value or self.cloud_values.get("base_url", "")
                 key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
                 model = self.query_one("#model-select", Select).value or self.cloud_values.get("model", "")
