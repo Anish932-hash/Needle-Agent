@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+from needle_agent.web_bridge import WebBridge
+
+
+class FakeAgent:
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    def complete(self, prompt):
+        self.calls.append(prompt)
+        return self.result
+
+
+class WebBridgeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.temp.name)
+        self.bridge = WebBridge(str(self.workspace))
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def _propose_write(self, path="note.txt", text="approved content"):
+        self.bridge.agent = FakeAgent({
+            "assistant_message": "I can propose the requested file write.",
+            "function_calls": [{
+                "name": "write_file",
+                "arguments": {"path": path, "text": text},
+            }],
+        })
+        return self.bridge.handle({
+            "op": "chat",
+            "payload": {"prompt": "Create a note in the workspace.", "mode": "local"},
+        })
+
+    def test_write_is_only_proposed_until_explicit_approval(self):
+        response = self._propose_write()
+        target = self.workspace / "note.txt"
+
+        self.assertEqual(len(response["proposals"]), 1)
+        self.assertFalse(target.exists(), "model output must not execute the proposed write")
+        action_id = response["proposals"][0]["id"]
+
+        outcome = self.bridge.handle({
+            "op": "resolve_action",
+            "payload": {"id": action_id, "approved": True},
+        })
+
+        self.assertTrue(target.is_file())
+        self.assertEqual(target.read_text(encoding="utf-8"), "approved content")
+        self.assertEqual(outcome["status"], "succeeded")
+        self.assertEqual(outcome["verification"]["status"], "passed")
+        self.assertTrue(outcome["turn_result"]["completed"])
+        self.assertEqual(self.bridge.pending, {})
+
+    def test_denied_write_never_touches_workspace(self):
+        response = self._propose_write()
+        target = self.workspace / "note.txt"
+        action_id = response["proposals"][0]["id"]
+
+        outcome = self.bridge.handle({
+            "op": "resolve_action",
+            "payload": {"id": action_id, "approved": False},
+        })
+
+        self.assertFalse(target.exists())
+        self.assertEqual(outcome["status"], "denied")
+        self.assertTrue(outcome["turn_result"]["completed"])
+
+    def test_workspace_escape_is_rejected_before_approval(self):
+        response = self._propose_write(path="../outside.txt")
+
+        self.assertEqual(response["proposals"], [])
+        self.assertEqual(len(response["rejected"]), 1)
+        self.assertIn("outside", response["rejected"][0]["reason"].lower())
+        self.assertEqual(self.bridge.pending, {})
+        self.assertFalse((self.workspace.parent / "outside.txt").exists())
+
+    def test_settings_response_never_returns_api_key(self):
+        marker = "test-secret-that-must-not-leak"
+        self.bridge.cloud_values["api_key"] = marker
+        response = self.bridge.handle({"op": "settings"})
+
+        self.assertNotIn("api_key", response["settings"])
+        self.assertNotIn(marker, json.dumps(response))
+
+    def test_malformed_model_response_does_not_crash_or_create_pending_actions(self):
+        self.bridge.agent = FakeAgent(None)
+        response = self.bridge.handle({
+            "op": "chat",
+            "payload": {"prompt": "Inspect the workspace.", "mode": "local"},
+        })
+
+        self.assertEqual(response["proposals"], [])
+        self.assertEqual(self.bridge.pending, {})
+        self.assertTrue(response["turn_result"]["completed"])
+
+    def test_duplicate_or_unknown_action_ids_cannot_be_approved(self):
+        with self.assertRaisesRegex(ValueError, "no longer pending"):
+            self.bridge.handle({
+                "op": "resolve_action",
+                "payload": {"id": "not-a-real-action", "approved": True},
+            })
+
+
+if __name__ == "__main__":
+    unittest.main()
