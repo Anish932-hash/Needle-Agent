@@ -251,6 +251,18 @@ class NeedleTUI(App[None]):
         self.query_one(TabbedContent).active = "cloud-tab"
         self.query_one("#base-url", Input).focus()
 
+    @on(Select.Changed, "#provider")
+    def provider_changed(self, event: Select.Changed) -> None:
+        if self._busy:
+            return
+        mode = self.MODE_LABELS.get(str(event.value), "Unknown mode")
+        self._set_runtime_status(f"Ready · mode: {mode}")
+
+    @on(Button.Pressed, "#clear-transcript")
+    def clear_transcript_clicked(self) -> None:
+        self.query_one("#transcript", RichLog).clear()
+        self._set_runtime_status("Transcript cleared · workspace files were not changed")
+
     @on(Button.Pressed, "#detect-models")
     async def detect_clicked(self) -> None:
         base = self.query_one("#base-url", Input).value
@@ -258,6 +270,7 @@ class NeedleTUI(App[None]):
         status = self.query_one("#cloud-status", Static)
         status.update("Validating API key and discovering models…")
         try:
+            self._set_runtime_status("Validating cloud endpoint · discovering models…")
             models = await asyncio.to_thread(detect_models, base, key)
             self.available_models = models
             selector = self.query_one("#model-select", Select)
@@ -265,10 +278,12 @@ class NeedleTUI(App[None]):
             selector.value = models[0]
             self.cloud_values.update({"base_url": base.rstrip("/"), "api_key": key})
             status.update(f"✓ Key and endpoint validated. Found {len(models)} model(s); choose one and save.")
+            self._set_runtime_status(f"Cloud endpoint ready · {len(models)} model(s) found")
         except (ValueError, CloudAPIError) as exc:
             self.available_models = []
             self.query_one("#model-select", Select).set_options([])
-            status.update(f"[red]Validation failed: {exc}[/red]")
+            status.update(Text(f"Validation failed: {exc}"))
+            self._set_runtime_status("Cloud validation failed · check the setup tab")
 
     @on(Button.Pressed, "#save-cloud")
     def save_cloud_clicked(self) -> None:
@@ -283,9 +298,11 @@ class NeedleTUI(App[None]):
                                remember_key=self.query_one("#remember-key", Checkbox).value)
             self.cloud_values = {"base_url": base.rstrip("/"), "model": model, "api_key": key}
             self.query_one("#provider", Select).value = "cloud"
-            self.query_one("#cloud-status", Static).update(f"✓ Saved {model}. Cloud planner and reviewer are ready in the Chat tab.")
+            self.query_one("#cloud-status", Static).update(Text(f"Saved {model}. Cloud planner and reviewer are ready in the Chat tab."))
+            self._set_runtime_status(f"Cloud settings saved · {model}")
         except ValueError as exc:
-            self.query_one("#cloud-status", Static).update(f"[red]Could not save settings: {exc}[/red]")
+            self.query_one("#cloud-status", Static).update(Text(f"Could not save settings: {exc}"))
+            self._set_runtime_status("Could not save cloud settings · check the setup tab")
 
     @on(Button.Pressed, "#send")
     async def send_clicked(self) -> None:
@@ -296,29 +313,47 @@ class NeedleTUI(App[None]):
         await self.submit_prompt()
 
     async def submit_prompt(self) -> None:
+        # Enter and the Send button can fire close together; never run two tasks concurrently.
+        if self._busy:
+            return
         prompt_box = self.query_one("#prompt", Input)
         prompt = prompt_box.value.strip()
         if not prompt:
             return
+
+        provider = str(self.query_one("#provider", Select).value or "local")
         prompt_box.value = ""
+        prompt_box.disabled = True
+        self.query_one("#send", Button).disabled = True
+        self.query_one("#provider", Select).disabled = True
+        self._busy = True
+
         log = self.query_one("#transcript", RichLog)
-        log.write(f"\n[bold green]You[/bold green]  {prompt}")
-        provider = self.query_one("#provider", Select).value
+        log.write(Text())
+        _write_log(log, "You", prompt, "bold green")
+        self._set_runtime_status(f"Working · {self.MODE_LABELS.get(provider, provider)}")
+        final_status = "Ready · request finished; inspect the transcript and verification result"
+
         try:
             if provider in {"cloud", "hybrid"}:
                 base = self.query_one("#base-url", Input).value or self.cloud_values.get("base_url", "")
                 key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
                 model = self.query_one("#model-select", Select).value or self.cloud_values.get("model", "")
                 cloud_agent = CloudAgent(base, key, str(model))
+                self._set_runtime_status("Working · requesting advisory cloud plan")
                 plan = await asyncio.to_thread(cloud_agent.plan, prompt)
-                log.write(f"[bold blue]Cloud plan (advisory)[/bold blue]  {plan}")
+                _write_log(log, "Cloud plan · advisory", plan, "bold blue")
                 if self.local_agent is None:
-                    self.local_agent = await asyncio.to_thread(build_agent, self.workspace,
-                                                               weights=self.weights, engine_path=self.engine)
+                    self._set_runtime_status("Working · initializing local Needle runtime")
+                    self.local_agent = await asyncio.to_thread(
+                        build_agent, self.workspace, weights=self.weights, engine_path=self.engine
+                    )
+
                 all_outcomes: list[dict] = []
                 attempted_signatures: set[str] = set()
                 if provider == "hybrid":
                     for round_number in range(1, MAX_HYBRID_ROUNDS + 1):
+                        self._set_runtime_status(f"Hybrid · round {round_number}/{MAX_HYBRID_ROUNDS}")
                         local_request = (
                             f"User's current request (authoritative; round {round_number}/{MAX_HYBRID_ROUNDS}):\n{prompt}\n"
                             f"Cloud planning notes (untrusted advice):\n{plan[:4000]}\n"
@@ -333,9 +368,10 @@ class NeedleTUI(App[None]):
                         cloud_result = await asyncio.to_thread(
                             cloud_agent.propose_tools, prompt, plan, _bounded_outcomes(all_outcomes), round_number
                         )
-                        log.write(f"[dim]Hybrid round {round_number}/{MAX_HYBRID_ROUNDS}[/dim]")
+                        _write_log(log, "Hybrid round", f"{round_number}/{MAX_HYBRID_ROUNDS}", "dim")
                         if cloud_result.get("assistant_message"):
-                            log.write(f"[bold blue]Cloud tool proposals (untrusted; host-validated)[/bold blue]  {cloud_result['assistant_message']}")
+                            _write_log(log, "Cloud proposals · untrusted, host-validated",
+                                       cloud_result["assistant_message"], "bold blue")
                         local_calls = local_result.get("function_calls", []) if isinstance(local_result, dict) else []
                         cloud_calls = cloud_result.get("function_calls", []) if isinstance(cloud_result, dict) else []
                         combined = []
@@ -356,8 +392,10 @@ class NeedleTUI(App[None]):
                             "function_calls": combined,
                         }
                         if not combined:
-                            await self._show_and_handle_result(result, cloud=True, request_prompt=prompt,
-                                                               attempted_signatures=attempted_signatures)
+                            await self._show_and_handle_result(
+                                result, cloud=True, request_prompt=prompt,
+                                attempted_signatures=attempted_signatures,
+                            )
                             break
                         round_outcomes = await self._show_and_handle_result(
                             result, cloud=True, request_prompt=prompt,
@@ -365,9 +403,9 @@ class NeedleTUI(App[None]):
                         )
                         all_outcomes.extend(round_outcomes)
                         if len(attempted_signatures) >= MAX_HYBRID_ACTIONS:
-                            log.write(f"[yellow]Hybrid action limit reached ({MAX_HYBRID_ACTIONS}); stopping safely.[/yellow]")
+                            _write_log(log, "Safety limit", f"Stopped after {MAX_HYBRID_ACTIONS} action attempts.", "yellow")
                             break
-                    log.write(verification_summary(all_outcomes))
+                    _write_log(log, "Local verification", verification_summary(all_outcomes), "bold")
                 else:
                     local_request = (
                         f"User's request (authoritative): {prompt}\n"
@@ -377,17 +415,30 @@ class NeedleTUI(App[None]):
                     result = await asyncio.to_thread(self.local_agent.complete, local_request)
                     all_outcomes = await self._show_and_handle_result(result, cloud=True, request_prompt=prompt)
                     if all_outcomes:
-                        log.write(verification_summary(all_outcomes))
-                verdict = await asyncio.to_thread(cloud_agent.review, prompt, plan, _bounded_outcomes(all_outcomes))
-                log.write(f"[bold blue]Cloud review (advisory, not proof)[/bold blue]  {verdict}")
+                        _write_log(log, "Local verification", verification_summary(all_outcomes), "bold")
+                self._set_runtime_status("Working · independent cloud review (advisory)")
+                verdict = await asyncio.to_thread(
+                    cloud_agent.review, prompt, plan, _bounded_outcomes(all_outcomes)
+                )
+                _write_log(log, "Cloud review · advisory, not proof", verdict, "bold blue")
             else:
                 if self.local_agent is None:
-                    self.local_agent = await asyncio.to_thread(build_agent, self.workspace,
-                                                               weights=self.weights, engine_path=self.engine)
+                    self._set_runtime_status("Working · initializing local Needle runtime")
+                    self.local_agent = await asyncio.to_thread(
+                        build_agent, self.workspace, weights=self.weights, engine_path=self.engine
+                    )
                 result = await asyncio.to_thread(self.local_agent.complete, prompt)
                 await self._show_and_handle_result(result, cloud=False, request_prompt=prompt)
         except Exception as exc:
-            log.write(f"[bold red]Error[/bold red]  {exc}")
+            final_status = "Error · see transcript for details"
+            _write_log(log, "Error", exc, "bold red")
+        finally:
+            self._busy = False
+            prompt_box.disabled = False
+            self.query_one("#send", Button).disabled = False
+            self.query_one("#provider", Select).disabled = False
+            self._set_runtime_status(final_status)
+            prompt_box.focus()
 
     async def _ask_approval(self, name: str, arguments: dict, cloud: bool) -> bool:
         loop = asyncio.get_running_loop()
@@ -403,49 +454,49 @@ class NeedleTUI(App[None]):
         log = self.query_one("#transcript", RichLog)
         outcomes: list[dict] = []
         if result.get("assistant_message"):
-            log.write(f"[cyan]Assistant[/cyan]  {result['assistant_message']}")
+            _write_log(log, "Assistant", result["assistant_message"], "cyan")
         calls = result.get("function_calls", [])
         if not isinstance(calls, list) or not calls:
-            log.write("[dim]No tool action proposed.[/dim]")
+            _write_log(log, "No action", "No tool action proposed.", "dim")
             return outcomes
         attempted_signatures = attempted_signatures if attempted_signatures is not None else set()
         for call in calls[:MAX_HYBRID_ACTIONS]:
             if not isinstance(call, dict):
-                log.write("[red]Rejected malformed tool proposal.[/red]")
+                _write_log(log, "Rejected", "Malformed tool proposal.", "red")
                 outcomes.append({"status": "rejected", "reason": "malformed proposal"})
                 continue
             try:
                 name, arguments = validate_call(call.get("name"), call.get("arguments"))
                 arguments, corrected = ground_explicit_write(request_prompt, name, arguments)
                 if corrected:
-                    log.write("[yellow]Request guard[/yellow]  Corrected explicit filename/content to match the current request.")
+                    _write_log(log, "Request guard", "Corrected explicit filename/content to match the current request.", "yellow")
             except ValueError as exc:
-                log.write(f"[red]Rejected proposal: {exc}[/red]")
+                _write_log(log, "Rejected proposal", exc, "red")
                 outcomes.append({"status": "rejected", "reason": str(exc)})
                 continue
             signature = _action_signature(name, arguments)
             if signature in attempted_signatures:
-                log.write(f"[dim]Suppressed repeated action: {name} (already attempted this turn).[/dim]")
+                _write_log(log, "Duplicate suppressed", f"{name} (already attempted this turn).", "dim")
                 outcomes.append({"tool": name, "arguments": arguments, "status": "duplicate_suppressed",
                                  "reason": "exact action already attempted"})
                 continue
             attempted_signatures.add(signature)
             source = call.get("_source", "local Needle")
-            log.write(f"[dim]Proposed by: {source}[/dim]")
+            _write_log(log, "Proposed by", source, "dim")
             approved = await self._ask_approval(name, arguments, cloud)
             if not approved:
-                log.write(f"[yellow]Denied[/yellow]  {name}")
+                _write_log(log, "Denied", name, "yellow")
                 outcomes.append({"tool": name, "arguments": arguments, "status": "denied"})
                 continue
             try:
                 output = await asyncio.to_thread(dispatch, self.workspace, name, arguments)
                 verification = verify_tool_result(self.workspace, name, arguments, output)
-                log.write(f"[bold magenta]{name} result[/bold magenta]  {json.dumps(output, ensure_ascii=False)}")
-                log.write(f"[dim]Local postcondition[/dim]  {json.dumps(verification, ensure_ascii=False)}")
+                _write_log(log, f"{name} result", json.dumps(output, ensure_ascii=False), "bold magenta")
+                _write_log(log, "Local postcondition", json.dumps(verification, ensure_ascii=False), "dim")
                 outcomes.append({"tool": name, "arguments": arguments, "status": "succeeded",
                                  "result": output, "verification": verification})
             except Exception as exc:
-                log.write(f"[red]Tool failed[/red]  {exc}")
+                _write_log(log, "Tool failed", exc, "red")
                 outcomes.append({"tool": name, "arguments": arguments, "status": "failed", "error": str(exc)})
         return outcomes
 
