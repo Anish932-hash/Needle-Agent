@@ -6,7 +6,7 @@
   "description": "Loopback-only Node web console for Needle Agent",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test server.test.mjs"
+    "test": "node --check server.mjs && node --check public/app.js && node --test server.test.mjs"
   },
   "engines": {
     "node": ">=20"
