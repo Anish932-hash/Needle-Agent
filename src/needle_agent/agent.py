@@ -115,14 +115,24 @@ def validate_call(name: Any, arguments: Any) -> tuple[str, dict]:
     if not isinstance(arguments, dict):
         raise ValueError("Tool arguments must be an object")
     schema = schemas[name]
-    if set(arguments) - set(schema):
-        raise ValueError("Tool call contains unexpected arguments")
-    if required[name] - set(arguments):
-        raise ValueError("Tool call is missing required arguments")
+    unexpected = set(arguments) - set(schema)
+    if unexpected:
+        names = ", ".join(sorted(str(key) for key in unexpected))
+        raise ValueError(f"Tool call contains unexpected argument(s): {names}")
+    missing = required[name] - set(arguments)
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise ValueError(f"Tool call is missing required argument(s): {names}")
     clean = {}
     for key, value in arguments.items():
         if name in {"list_files", "search_workspace"} and key == "path" and isinstance(value, str):
-            if value.strip().lower() in {"workspace", "the workspace", "current workspace", "the current workspace"}:
+            words = value.casefold().split()
+            while words and words[0] in {"the", "current", "my"}:
+                words.pop(0)
+            if tuple(words) in {
+                ("workspace",), ("workspace", "root"), ("workspace", "folder"),
+                ("workspace", "directory"), ("workspace", "files"), ("workspace", "contents"),
+            }:
                 value = "."
         if not isinstance(value, schema[key]):
             raise ValueError(f"Argument {key!r} must be {schema[key].__name__}")
