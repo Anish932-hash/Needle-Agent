@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="needle-boot-token" content="__NEEDLE_BOOT_TOKEN__">
+  <title>Needle Agent — Web Console</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="Needle Agent home">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span class="brand-copy"><strong>NEEDLE</strong><small>AGENT CONSOLE</small></span>
+      </a>
+
+      <div class="sidebar-label">WORKSPACE</div>
+      <nav class="nav-stack" aria-label="Main navigation">
+        <button class="nav-item active" id="nav-chat" data-view="chat-view" type="button">
+          <span class="nav-glyph" aria-hidden="true">⌘</span><span>Chat</span><span class="nav-tail">01</span>
+        </button>
+        <button class="nav-item" id="nav-settings" data-view="settings-view" type="button">
+          <span class="nav-glyph" aria-hidden="true">⚙</span><span>Cloud setup</span><span class="nav-tail">02</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-spacer"></div>
+      <div class="workspace-card">
+        <div class="workspace-card-top"><span class="status-dot"></span><span>LOCAL WORKSPACE</span></div>
+        <div class="workspace-name" id="workspace-name">Connecting…</div>
+        <p>Actions stay local unless you approve them. No shell or arbitrary-code tool is exposed.</p>
+      </div>
+      <div class="sidebar-footer"><span class="tiny-mark"></span> NEEDLE AGENT <span class="version-tag">WEB</span></div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="breadcrumbs"><span>NEEDLE AGENT</span><span class="crumb-sep">/</span><strong id="breadcrumb-current">CHAT</strong></div>
+        <div class="topbar-right"><span class="status-dot" id="connection-dot"></span><span id="connection-label">Checking local runtime</span></div>
+      </header>
+
+      <section class="view active-view" id="chat-view">
+        <div class="view-heading">
+          <div>
+            <div class="eyebrow">LOCAL-FIRST ASSISTANT <span class="eyebrow-line"></span></div>
+            <h1>Action console<span class="title-period">.</span></h1>
+            <p class="view-subtitle">Describe a task. Inspect every proposal. Approve each local action yourself.</p>
+          </div>
+          <label class="mode-control">
+            <span>EXECUTION MODE</span>
+            <select id="mode-select">
+              <option value="local">Local Needle</option>
+              <option value="cloud">Cloud plan + local actions</option>
+              <option value="hybrid">Hybrid proposals</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="chat-panel">
+          <div class="chat-panel-bar">
+            <div class="panel-title"><span class="panel-led"></span><span>SESSION TRANSCRIPT</span></div>
+            <button class="text-button" id="clear-visible" type="button">Clear visible chat</button>
+          </div>
+          <div class="messages" id="messages" aria-live="polite" aria-relevant="additions text">
+            <div class="welcome-card" id="welcome-card">
+              <div class="welcome-mark"><span></span><span></span><span></span></div>
+              <div class="welcome-kicker">NEEDLE / READY WHEN YOU ARE</div>
+              <h2>A task starts with a request.<br><span>Execution starts with your approval.</span></h2>
+              <p>Needle can inspect and work inside its selected workspace. Proposed tool calls are validated before they are shown here. Nothing runs automatically.</p>
+              <div class="welcome-chips"><span>Workspace-confined</span><span>Explicit approval</span><span>Evidence-aware results</span></div>
+            </div>
+          </div>
+          <div class="busy-row" id="busy-row" hidden><span class="loader"></span><span id="busy-label">Working…</span></div>
+          <form id="composer-form" class="composer">
+            <label class="visually-hidden" for="prompt-input">Describe the task</label>
+            <textarea id="prompt-input" rows="1" maxlength="10000" placeholder="Describe a task for Needle…" autocomplete="off" required></textarea>
+            <button class="send-button" id="send-button" type="submit"><span>Send request</span><span aria-hidden="true">↗</span></button>
+          </form>
+          <div class="composer-foot">
+            <span><span class="mini-lock"></span> All proposed actions require approval</span>
+            <span><kbd>Enter</kbd> to send <span class="foot-divider">·</span> <kbd>Shift + Enter</kbd> for a new line</span>
+          </div>
+        </div>
+        <div class="bottom-notice"><span class="notice-icon">i</span><span><strong>Important:</strong> Cloud mode can send your prompt and approved action results to the configured provider for planning or review.</span></div>
+      </section>
+
+      <section class="view" id="settings-view">
+        <div class="view-heading settings-heading">
+          <div>
+            <div class="eyebrow">OPTIONAL PROVIDER CONNECTION <span class="eyebrow-line"></span></div>
+            <h1>Cloud setup<span class="title-period">.</span></h1>
+            <p class="view-subtitle">Configure an OpenAI-compatible endpoint. Local Needle remains responsible for tool validation and execution.</p>
+          </div>
+          <div class="security-badge"><span class="mini-lock"></span> LOOPBACK UI · NO THIRD-PARTY SCRIPTS</div>
+        </div>
+
+        <div class="settings-grid">
+          <div class="settings-panel">
+            <div class="panel-topline"><span class="section-index">01</span><h2>Provider connection</h2></div>
+            <p class="panel-description">Remote endpoints must use HTTPS. Plain HTTP is permitted only for a localhost endpoint.</p>
+            <form id="settings-form">
+              <label for="base-url">API base URL</label>
+              <input id="base-url" type="url" placeholder="https://api.openai.com/v1" autocomplete="url" required>
+              <div class="field-note">Needle uses <code>/models</code> and <code>/chat/completions</code>.</div>
+
+              <label for="api-key">API key <span class="label-optional">OPTIONAL IF ALREADY CONFIGURED</span></label>
+              <input id="api-key" type="password" placeholder="Paste key to validate" autocomplete="new-password">
+              <div class="field-note" id="key-hint">The key is kept in memory by default and is not shown again.</div>
+
+              <button class="secondary-button full-width" id="detect-models" type="button"><span class="button-spark"></span> Validate endpoint &amp; detect models</button>
+
+              <label for="model-select">Available model</label>
+              <select id="model-select" required>
+                <option value="">Validate the endpoint to load models</option>
+              </select>
+
+              <label class="checkbox-row" for="remember-key">
+                <input id="remember-key" type="checkbox">
+                <span><strong>Remember API key on this device</strong><small>Stores the key in Needle's local config file with restrictive permissions.</small></span>
+              </label>
+              <button class="primary-button full-width" id="save-settings" type="submit">Save cloud settings <span aria-hidden="true">→</span></button>
+            </form>
+            <div class="status-box" id="settings-status" role="status">No connection check has run in this session.</div>
+          </div>
+
+          <div class="security-panel">
+            <div class="security-visual"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="core-symbol"><span></span><span></span><span></span></div></div>
+            <div class="eyebrow">TRUST BOUNDARY</div>
+            <h2>Cloud can advise.<br><span>Local code decides.</span></h2>
+            <div class="trust-row"><span class="trust-number">01</span><div><strong>Structured proposals only</strong><p>Cloud responses are suggestions, not executable instructions.</p></div></div>
+            <div class="trust-row"><span class="trust-number">02</span><div><strong>Local validation</strong><p>Tool names, arguments, paths, and workspace boundaries are checked locally.</p></div></div>
+            <div class="trust-row"><span class="trust-number">03</span><div><strong>Human approval</strong><p>Every action is shown with its arguments. File writes are never automatic.</p></div></div>
+            <div class="security-footnote"><span class="mini-lock"></span> Your API key is never embedded in frontend JavaScript.</div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="main-footer"><span>NEEDLE AGENT</span><span>Local control. Clear evidence. Explicit approval.</span></footer>
+    </main>
+  </div>
+  <div class="toast-region" id="toast-region" aria-live="assertive"></div>
+</body>
+</html>
