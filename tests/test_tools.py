@@ -53,6 +53,28 @@ class WorkspaceTests(unittest.TestCase):
         self.ws.write_file("alias.txt", "replacement")
         self.assertEqual(target.read_text(encoding="utf-8"), "replacement")
 
+    def test_write_rejects_parent_symlink_swap_after_resolution(self):
+        if not self.ws._supports_secure_dirfd():
+            self.skipTest("descriptor-relative no-follow I/O unavailable")
+        nested = self.ws.root / "nested"
+        nested.mkdir()
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        outside_file = outside / "escape.txt"
+        original_resolve = self.ws.resolve
+
+        def resolve_then_swap(raw):
+            resolved = original_resolve(raw)
+            if raw == "nested/escape.txt":
+                nested.rename(self.ws.root / "nested-original")
+                (self.ws.root / "nested").symlink_to(outside, target_is_directory=True)
+            return resolved
+
+        self.ws.resolve = resolve_then_swap
+        with self.assertRaises((OSError, ValueError)):
+            self.ws.write_file("nested/escape.txt", "must not escape")
+        self.assertFalse(outside_file.exists())
+
     def test_unknown_tool_rejected(self):
         with self.assertRaises(ValueError):
             dispatch(self.ws, "run_shell", {})
