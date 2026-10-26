@@ -187,6 +187,7 @@ class NeedleTUI(App[None]):
         self.local_agent = None
         self.available_models: list[str] = []
         self._busy = False
+        self._detecting_models = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -224,8 +225,35 @@ class NeedleTUI(App[None]):
         try:
             self.query_one("#runtime-status", Static).update(Text(message))
         except Exception:
-            # Status updates must never interrupt a running operation.
+            # Status updates must never interrupt a running operation or shutdown.
             pass
+
+    def _safe_log(self, label: str, message: Any, style: str | None = None) -> None:
+        """Write only while the transcript is mounted; shutdown must not raise another error."""
+        try:
+            _write_log(self.query_one("#transcript", RichLog), label, message, style)
+        except Exception:
+            pass
+
+    def _safe_update(self, selector: str, widget_type: type, value: Any) -> None:
+        """Update an optional UI widget without turning a transient UI teardown into a crash."""
+        try:
+            self.query_one(selector, widget_type).update(value)
+        except Exception:
+            pass
+
+    def _set_request_controls(self, disabled: bool) -> None:
+        """Lock request controls together and tolerate widgets disappearing on shutdown."""
+        for selector, widget_type in (
+            ("#prompt", Input),
+            ("#send", Button),
+            ("#provider", Select),
+            ("#clear-transcript", Button),
+        ):
+            try:
+                self.query_one(selector, widget_type).disabled = disabled
+            except Exception:
+                pass
 
     def on_mount(self) -> None:
         log = self.query_one("#transcript", RichLog)
@@ -265,43 +293,83 @@ class NeedleTUI(App[None]):
 
     @on(Button.Pressed, "#detect-models")
     async def detect_clicked(self) -> None:
-        base = self.query_one("#base-url", Input).value
-        key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
-        status = self.query_one("#cloud-status", Static)
-        status.update("Validating API key and discovering models…")
+        # Prevent overlapping validations and configuration changes during a request.
+        if self._detecting_models or self._busy:
+            self._safe_update("#cloud-status", Static, "Finish the current operation before validating another endpoint.")
+            return
+        self._detecting_models = True
+        button = None
         try:
+            button = self.query_one("#detect-models", Button)
+            button.disabled = True
+            base = self.query_one("#base-url", Input).value
+            key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
+            self._safe_update("#cloud-status", Static, "Validating API key and discovering models…")
             self._set_runtime_status("Validating cloud endpoint · discovering models…")
             models = await asyncio.to_thread(detect_models, base, key)
-            self.available_models = models
+            if not models:
+                raise CloudAPIError("No models were returned by the endpoint.")
             selector = self.query_one("#model-select", Select)
             selector.set_options([(model, model) for model in models])
             selector.value = models[0]
+            self.available_models = models
             self.cloud_values.update({"base_url": base.rstrip("/"), "api_key": key})
-            status.update(f"✓ Key and endpoint validated. Found {len(models)} model(s); choose one and save.")
+            self._safe_update(
+                "#cloud-status", Static,
+                f"Endpoint validated. Found {len(models)} model(s); choose one and save.",
+            )
             self._set_runtime_status(f"Cloud endpoint ready · {len(models)} model(s) found")
-        except (ValueError, CloudAPIError) as exc:
+        except Exception as exc:
+            # Network libraries and filesystem-backed configuration can raise more
+            # than ValueError/CloudAPIError. Keep failures inside the UI event loop.
             self.available_models = []
-            self.query_one("#model-select", Select).set_options([])
-            status.update(Text(f"Validation failed: {exc}"))
+            try:
+                self.query_one("#model-select", Select).set_options([])
+            except Exception:
+                pass
+            self._safe_update(
+                "#cloud-status", Static,
+                Text(f"Validation failed ({type(exc).__name__}): {exc}"),
+            )
             self._set_runtime_status("Cloud validation failed · check the setup tab")
+        finally:
+            self._detecting_models = False
+            try:
+                if button is not None:
+                    button.disabled = False
+            except Exception:
+                pass
 
     @on(Button.Pressed, "#save-cloud")
     def save_cloud_clicked(self) -> None:
-        base = self.query_one("#base-url", Input).value
-        key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
-        model = self.query_one("#model-select", Select).value
-        if not isinstance(model, str) or not model:
-            self.query_one("#cloud-status", Static).update("Validate the endpoint and select a model first.")
-            return
         try:
-            self.settings.save(base, model, key,
-                               remember_key=self.query_one("#remember-key", Checkbox).value)
+            if self._busy or self._detecting_models:
+                self._safe_update("#cloud-status", Static, "Finish the current operation before saving settings.")
+                return
+            base = self.query_one("#base-url", Input).value
+            key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
+            model = self.query_one("#model-select", Select).value
+            if not isinstance(model, str) or not model.strip():
+                self._safe_update("#cloud-status", Static, "Validate the endpoint and select a model first.")
+                return
+            self.settings.save(
+                base, model, key,
+                remember_key=self.query_one("#remember-key", Checkbox).value,
+            )
             self.cloud_values = {"base_url": base.rstrip("/"), "model": model, "api_key": key}
             self.query_one("#provider", Select).value = "cloud"
-            self.query_one("#cloud-status", Static).update(Text(f"Saved {model}. Cloud planner and reviewer are ready in the Chat tab."))
+            self._safe_update(
+                "#cloud-status", Static,
+                Text(f"Saved {model}. Cloud planner and reviewer are ready in the Chat tab."),
+            )
             self._set_runtime_status(f"Cloud settings saved · {model}")
-        except ValueError as exc:
-            self.query_one("#cloud-status", Static).update(Text(f"Could not save settings: {exc}"))
+        except Exception as exc:
+            # Invalid values, disk permission errors, and unexpected provider/UI
+            # errors should be surfaced without unwinding Textual's event loop.
+            self._safe_update(
+                "#cloud-status", Static,
+                Text(f"Could not save settings ({type(exc).__name__}): {exc}"),
+            )
             self._set_runtime_status("Could not save cloud settings · check the setup tab")
 
     @on(Button.Pressed, "#send")
