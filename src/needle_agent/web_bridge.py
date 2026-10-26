@@ -11,7 +11,6 @@ import os
 import re
 import secrets
 import sys
-from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
@@ -106,9 +105,17 @@ class WebBridge:
         self.context = AutomaticContextManager(self.conversation, self.memory, context_tokens)
         self.settings = CloudSettings()
         self.cloud_values = self.settings.load()
+        self.key_saved_on_disk = self._saved_key_exists()
         self.agent = None
         self.pending: dict[str, dict[str, Any]] = {}
         self.active_turn: dict[str, Any] | None = None
+
+    def _saved_key_exists(self) -> bool:
+        try:
+            config = json.loads(self.settings.path.read_text(encoding="utf-8"))
+            return isinstance(config, dict) and isinstance(config.get("api_key"), str) and bool(config["api_key"].strip())
+        except (OSError, ValueError):
+            return False
 
     def _get_agent(self):
         if self.agent is None:
@@ -120,6 +127,7 @@ class WebBridge:
             "base_url": self.cloud_values.get("base_url", "https://api.openai.com/v1"),
             "model": self.cloud_values.get("model", ""),
             "key_configured": bool(self.cloud_values.get("api_key", "").strip()),
+            "key_saved_on_device": self.key_saved_on_disk,
         }
 
     def handle(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -149,15 +157,19 @@ class WebBridge:
         if operation == "save_settings":
             base = payload.get("base_url", "")
             model = payload.get("model", "")
-            key = payload.get("api_key") or self.cloud_values.get("api_key", "")
+            provided_key = payload.get("api_key", "")
+            key = provided_key.strip() if isinstance(provided_key, str) and provided_key.strip() else self.cloud_values.get("api_key", "")
             remember = payload.get("remember_key", False)
             if not isinstance(remember, bool):
                 raise ValueError("remember_key must be a boolean")
+            # A saved key is reflected as a checked checkbox in the UI. Unchecking
+            # it and saving intentionally stops persisting that key on this device.
             self.settings.save(base, model, key, remember_key=remember)
+            self.key_saved_on_disk = bool(remember and key.strip())
             self.cloud_values.update({"base_url": base.rstrip("/"),
                                       "model": model.strip(), "api_key": key})
             return {"settings": self._public_settings(),
-                    "message": "Cloud settings saved. The API key is only persisted when explicitly requested."}
+                    "message": "Cloud settings saved. The API key is only persisted when the remember-key option is enabled."}
         if operation == "chat":
             return self._chat(payload)
         if operation == "resolve_action":
@@ -372,6 +384,11 @@ class WebBridge:
 
 
 def main() -> None:
+    # Preserve a dedicated JSON protocol descriptor, then redirect file descriptor
+    # 1 to stderr. This keeps stdout clean even if native model code writes via C.
+    protocol = os.fdopen(os.dup(sys.stdout.fileno()), "w", encoding="utf-8", buffering=1)
+    os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    sys.stdout = sys.stderr
     parser = argparse.ArgumentParser(description="Needle Agent local web UI bridge")
     parser.add_argument("--workspace", default="./needle-workspace")
     parser.add_argument("--weights")
@@ -385,16 +402,13 @@ def main() -> None:
             request = json.loads(line)
             if isinstance(request, dict):
                 request_id = request.get("id")
-            # Keep third-party/native runtime stdout away from the JSON-lines protocol.
-            with redirect_stdout(sys.stderr):
-                result = bridge.handle(request)
+            result = bridge.handle(request)
             response = {"id": request_id, "ok": True, "result": _safe_json(result)}
         except Exception as exc:
             response = {"id": request_id, "ok": False,
                         "error": f"{type(exc).__name__}: {exc}"}
         try:
-            sys.stdout.write(json.dumps(response, ensure_ascii=False, default=str) + "\n")
-            sys.stdout.flush()
+            protocol.write(json.dumps(response, ensure_ascii=False, default=str) + "\n")
         except (BrokenPipeError, OSError):
             return
 
