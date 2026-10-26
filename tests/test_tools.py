@@ -93,10 +93,19 @@ class WorkspaceTests(unittest.TestCase):
             with self.subTest(query_len=len(query)), self.assertRaises(ValueError):
                 self.ws.search_workspace(query)
 
-    def test_current_workspace_alias_is_canonicalized(self):
-        name, args = validate_call("list_files", {"path": "current workspace"})
-        self.assertEqual(name, "list_files")
-        self.assertEqual(args["path"], ".")
+    def test_workspace_alias_phrasing_is_canonicalized(self):
+        for phrase in ("current workspace", "the workspace folder", "my workspace directory",
+                       "workspace root", "the workspace contents"):
+            with self.subTest(phrase=phrase):
+                name, args = validate_call("list_files", {"path": phrase})
+                self.assertEqual(name, "list_files")
+                self.assertEqual(args["path"], ".")
+
+    def test_argument_errors_name_the_offending_fields(self):
+        with self.assertRaisesRegex(ValueError, "recursive"):
+            validate_call("list_files", {"path": ".", "recursive": True})
+        with self.assertRaisesRegex(ValueError, "path"):
+            validate_call("read_file", {})
 
     def test_malformed_and_extra_arguments_rejected(self):
         for name, args in [("read_file", {}), ("list_files", {"path": ".", "recursive": True}),
