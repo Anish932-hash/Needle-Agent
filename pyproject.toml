@@ -8,10 +8,11 @@ version = "0.1.0"
 description = "A lightweight, safety-first local OS agent powered by Cactus Needle 3"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["cactus-needle"]
+dependencies = ["cactus-needle", "textual>=0.70,<2"]
 
 [project.scripts]
 needle-agent = "needle_agent.cli:main"
+needle-agent-tui = "needle_agent.tui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
