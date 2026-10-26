@@ -53,7 +53,7 @@ class Workspace:
         """Resolve a bounded relative path, enforce confinement, and reserve agent stores."""
         if not isinstance(raw, str):
             raise ValueError("Workspace path must be text")
-        if not raw or len(raw) > _MAX_PATH_CHARS or "\\x00" in raw:
+        if not raw or len(raw) > _MAX_PATH_CHARS or "\x00" in raw:
             raise ValueError(f"Workspace path must contain 1–{_MAX_PATH_CHARS} valid characters")
         path = (self.root / raw).resolve()
         if path != self.root and self.root not in path.parents:
