@@ -5,7 +5,8 @@ import unittest
 from unittest.mock import patch
 
 try:
-    from needle_agent.tui import NeedleTUI
+    from rich.text import Text
+    from needle_agent.tui import NeedleTUI, _write_log
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False
@@ -140,6 +141,46 @@ class TUITests(unittest.TestCase):
                 self.assertEqual(cloud.reviewed[2][1]["verification"]["status"], "passed")
         asyncio.run(scenario())
 
+    def test_log_keeps_user_supplied_rich_markup_literal(self):
+        class Collector:
+            renderable = None
+            def write(self, renderable):
+                self.renderable = renderable
+
+        collector = Collector()
+        user_text = "[bold red]this is user input[/bold red]"
+        _write_log(collector, "You", user_text, "bold green")
+
+        self.assertIsInstance(collector.renderable, Text)
+        self.assertEqual(collector.renderable.plain, "You  " + user_text)
+        self.assertEqual(collector.renderable.spans[0].style, "bold green")
+
+    def test_submit_lock_prevents_overlapping_model_requests(self):
+        async def scenario():
+            import time
+            with tempfile.TemporaryDirectory() as temp:
+                app = NeedleTUI(Path(temp))
+                class SlowLocal:
+                    calls = 0
+                    def complete(self, prompt):
+                        self.calls += 1
+                        time.sleep(0.15)
+                        return {"assistant_message": "No action needed.", "function_calls": []}
+                local = SlowLocal()
+                app.local_agent = local
+                async with app.run_test() as pilot:
+                    app.query_one("#prompt").value = "first request"
+                    task = asyncio.create_task(app.submit_prompt())
+                    await pilot.pause(0.03)
+                    self.assertTrue(app._busy)
+                    self.assertTrue(app.query_one("#send").disabled)
+                    await app.submit_prompt()
+                    await task
+                    self.assertEqual(local.calls, 1)
+                    self.assertFalse(app._busy)
+                    self.assertFalse(app.query_one("#send").disabled)
+        asyncio.run(scenario())
+
     def test_tui_mounts_chat_and_cloud_setup_screens(self):
         async def scenario():
             with tempfile.TemporaryDirectory() as temp:
@@ -147,6 +188,8 @@ class TUITests(unittest.TestCase):
                 async with app.run_test() as pilot:
                     self.assertIsNotNone(app.query_one("#transcript"))
                     self.assertIsNotNone(app.query_one("#model-select"))
+                    self.assertIsNotNone(app.query_one("#runtime-status"))
+                    self.assertIsNotNone(app.query_one("#clear-transcript"))
                     app.action_show_setup()
                     await pilot.pause()
                     self.assertEqual(app.query_one("#base-url").value, "https://api.openai.com/v1")
