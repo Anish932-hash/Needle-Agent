@@ -44,5 +44,22 @@ class HybridCloudProposalTests(unittest.TestCase):
         self.assertEqual(len(result["function_calls"]), 3)
 
 
+    def test_proposals_receive_bounded_outcomes_and_round_number(self):
+        response = json.dumps({"assistant_message": "Need more evidence.", "function_calls": []})
+        previous = [{"tool": "read_file", "status": "succeeded",
+                     "result": {"text": "x" * 10000}}]
+        with patch.object(self.agent, "_chat", return_value=response) as chat:
+            result = self.agent.propose_tools("Read note.txt", "advisory plan",
+                                              previous_outcomes=previous, round_number=2)
+
+        self.assertEqual(result["function_calls"], [])
+        system, payload = chat.call_args.args
+        parsed = json.loads(payload)
+        self.assertEqual(parsed["user_request"], "Read note.txt")
+        self.assertEqual(parsed["round_number"], 2)
+        self.assertEqual(parsed["previous_local_outcomes"][0]["status"], "succeeded")
+        self.assertLess(len(parsed["previous_local_outcomes"][0]["result"]), 2600)
+        self.assertIn("Do not repeat an exact action", system)
+
 if __name__ == "__main__":
     unittest.main()
