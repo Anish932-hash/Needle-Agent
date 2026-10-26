@@ -148,6 +148,16 @@ class WorkspaceTests(unittest.TestCase):
             with self.subTest(name=name, args=args), self.assertRaises(ValueError):
                 validate_call(name, args)
 
+    def test_atomic_write_preserves_existing_file_permissions(self):
+        if os.name == "nt":
+            self.skipTest("POSIX mode bits are not portable on Windows")
+        path = self.ws.root / "private.txt"
+        path.write_text("old", encoding="utf-8")
+        path.chmod(0o600)
+        self.ws.write_file("private.txt", "new")
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(path.read_text(encoding="utf-8"), "new")
+
     def test_size_limit(self):
         with self.assertRaises(ValueError):
             self.ws.write_file("large.txt", "x" * 65537)
