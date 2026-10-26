@@ -200,7 +200,7 @@ class NeedleTUI(App[None]):
                             ("Hybrid · local + cloud proposals", "hybrid"),
                         ], value="local", id="provider")
                         yield Static("Ready · choose a mode and enter a request", id="runtime-status", markup=False)
-                        yield Button("Clear", id="clear-transcript", tooltip="Clear the visible conversation")
+                        yield Button("Clear chat", variant="warning", id="clear-transcript", tooltip="Clear the visible conversation; workspace files are unchanged")
                     yield RichLog(id="transcript", wrap=True, markup=False, auto_scroll=True)
                     with Horizontal(id="chat-controls"):
                         yield Input(placeholder="Describe the task…  (Enter to send)", id="prompt")
@@ -261,7 +261,7 @@ class NeedleTUI(App[None]):
     @on(Button.Pressed, "#clear-transcript")
     def clear_transcript_clicked(self) -> None:
         self.query_one("#transcript", RichLog).clear()
-        self._set_runtime_status("Transcript cleared · workspace files were not changed")
+        self._set_runtime_status("Visible chat cleared · workspace files were not changed")
 
     @on(Button.Pressed, "#detect-models")
     async def detect_clicked(self) -> None:
@@ -326,6 +326,7 @@ class NeedleTUI(App[None]):
         prompt_box.disabled = True
         self.query_one("#send", Button).disabled = True
         self.query_one("#provider", Select).disabled = True
+        self.query_one("#clear-transcript", Button).disabled = True
         self._busy = True
 
         log = self.query_one("#transcript", RichLog)
@@ -437,6 +438,7 @@ class NeedleTUI(App[None]):
             prompt_box.disabled = False
             self.query_one("#send", Button).disabled = False
             self.query_one("#provider", Select).disabled = False
+            self.query_one("#clear-transcript", Button).disabled = False
             self._set_runtime_status(final_status)
             prompt_box.focus()
 
