@@ -75,7 +75,7 @@ def detect_models(base_url: str, api_key: str) -> list[str]:
 
 
 class CloudAgent:
-    """Cloud planner/verifier adapter. It receives no tool schemas and executes nothing."""
+    """OpenAI-compatible planner/reviewer with advisory tool proposals; it never executes tools."""
     def __init__(self, base_url: str, api_key: str, model: str, timeout: float = 60):
         self.base_url = normalize_base_url(base_url)
         if not isinstance(model, str) or not model.strip():
