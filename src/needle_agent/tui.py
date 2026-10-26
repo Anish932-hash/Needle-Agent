@@ -118,7 +118,7 @@ class NeedleTUI(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#transcript", RichLog).write("[bold cyan]Needle Agent[/bold cyan] — choose Local Needle or Cloud plan + local execution, then ask in plain language. Cloud proposes a plan and reviews results; only local Needle may propose actions. Every local action requires approval.")
+        self.query_one("#transcript", RichLog).write("[bold cyan]Needle Agent[/bold cyan] — choose Local Needle, Cloud plan + local Needle, or Hybrid. Hybrid combines local Needle and cloud-proposed allowlisted tool calls; the host validates each call and asks approval before local execution.")
         self.query_one("#base-url", Input).value = self.cloud_values["base_url"]
         if self.cloud_values["api_key"]:
             self.query_one("#api-key", Input).value = self.cloud_values["api_key"]
@@ -258,7 +258,7 @@ class NeedleTUI(App[None]):
         if not isinstance(calls, list) or not calls:
             log.write("[dim]No tool action proposed.[/dim]")
             return outcomes
-        for call in calls[:3]:
+        for call in calls[:6]:
             if not isinstance(call, dict):
                 log.write("[red]Rejected malformed tool proposal.[/red]")
                 outcomes.append({"status": "rejected", "reason": "malformed proposal"})
