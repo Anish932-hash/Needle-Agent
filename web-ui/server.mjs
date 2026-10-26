@@ -152,9 +152,10 @@ function readJsonBody(req) {
       return;
     }
     let size = 0;
-    const chunks = [];
     let rejected = false;
+    const chunks = [];
     req.on("data", (chunk) => {
+      if (rejected) return;
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
         rejected = true;
@@ -281,7 +282,7 @@ export function createWebServer(options = {}) {
     try {
       const filePath = path.join(PUBLIC_DIR, entry[0]);
       const content = entry[0] === "index.html"
-        ? readFileSync(filePath, "utf8").replace("window.NEEDLE_BOOT_TOKEN = '';", "window.NEEDLE_BOOT_TOKEN = '" + token + "';")
+        ? readFileSync(filePath, "utf8").replace('content="__NEEDLE_BOOT_TOKEN__"', 'content="' + token + '"')
         : null;
       res.setHeader("Content-Type", entry[1]);
       res.setHeader("Cache-Control", "no-store");
