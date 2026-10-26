@@ -59,8 +59,12 @@ class CloudAPITests(unittest.TestCase):
     def test_url_validation_requires_https_for_remote_services(self):
         self.assertEqual(normalize_base_url("https://api.example.com/v1/"), "https://api.example.com/v1")
         self.assertEqual(normalize_base_url("http://localhost:9000/v1"), "http://localhost:9000/v1")
+        self.assertEqual(normalize_base_url("http://127.0.0.1:9000/v1"), "http://127.0.0.1:9000/v1")
+        self.assertEqual(normalize_base_url("http://[::1]:9000/v1"), "http://[::1]:9000/v1")
         for url in ("api.example.com", "http://api.example.com/v1", "https://user:pw@example.com/v1",
-                    "https://example.com/v1?key=x"):
+                    "https://example.com/v1?key=x", "http://0.0.0.0:9000/v1",
+                    "http://169.254.169.254/latest/meta-data", "http://127.0.0.2:9000/v1",
+                    "http://service.localhost:9000/v1", "http://localhost.evil.example/v1"):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 normalize_base_url(url)
 
