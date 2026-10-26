@@ -199,19 +199,23 @@ class TUITests(unittest.TestCase):
     def test_missing_cloud_model_is_reported_without_crashing(self):
         async def scenario():
             with tempfile.TemporaryDirectory() as temp:
-                app = NeedleTUI(Path(temp))
-                with patch("needle_agent.tui.CloudAgent") as cloud_factory:
-                    async with app.run_test() as pilot:
-                        app.query_one("#provider").value = "cloud"
-                        app.query_one("#prompt").value = "Plan a task"
-                        await app.submit_prompt()
-                        await pilot.pause()
-                        cloud_factory.assert_not_called()
-                        self.assertFalse(app._busy)
-                        self.assertFalse(app.query_one("#send").disabled)
-                        status = app.query_one("#runtime-status").render()
-                        rendered = status.plain if hasattr(status, "plain") else str(status)
-                        self.assertIn("select a model", rendered.lower())
+                with patch("needle_agent.tui.CloudSettings") as settings_class:
+                    settings_class.return_value.load.return_value = {
+                        "base_url": "https://api.example.com/v1", "model": "", "api_key": "",
+                    }
+                    app = NeedleTUI(Path(temp))
+                    with patch("needle_agent.tui.CloudAgent") as cloud_factory:
+                        async with app.run_test() as pilot:
+                            app.query_one("#provider").value = "cloud"
+                            app.query_one("#prompt").value = "Plan a task"
+                            await app.submit_prompt()
+                            await pilot.pause()
+                            cloud_factory.assert_not_called()
+                            self.assertFalse(app._busy)
+                            self.assertFalse(app.query_one("#send").disabled)
+                            status = app.query_one("#runtime-status").render()
+                            rendered = status.plain if hasattr(status, "plain") else str(status)
+                            self.assertIn("select a model", rendered.lower())
         asyncio.run(scenario())
 
     def test_unexpected_model_discovery_error_is_contained_and_unlocks_button(self):
@@ -258,16 +262,20 @@ class TUITests(unittest.TestCase):
                     def complete(self, prompt):
                         return None
                 app.local_agent = InvalidLocal()
-                async with app.run_test() as pilot:
-                    app.query_one("#prompt").value = "do something"
-                    await app.submit_prompt()
-                    await pilot.pause()
-                    self.assertFalse(app._busy)
-                    self.assertFalse(app.query_one("#send").disabled)
-                    self.assertFalse(app.query_one("#prompt").disabled)
-                    # The invalid response is handled as a rejected proposal, not an app exception.
-                    contents = str(app.query_one("#transcript").lines)
-                    self.assertIn("invalid response structure", contents.lower())
+                with patch("needle_agent.tui._write_log", wraps=_write_log) as write_log:
+                    async with app.run_test() as pilot:
+                        app.query_one("#prompt").value = "do something"
+                        await app.submit_prompt()
+                        await pilot.pause()
+                        self.assertFalse(app._busy)
+                        self.assertFalse(app.query_one("#send").disabled)
+                        self.assertFalse(app.query_one("#prompt").disabled)
+                        # The invalid response is handled as a rejected proposal, not an app exception.
+                        self.assertTrue(any(
+                            call.args[1] == "Rejected"
+                            and "invalid response structure" in str(call.args[2]).lower()
+                            for call in write_log.call_args_list
+                        ))
         asyncio.run(scenario())
 
     def test_local_runtime_exception_does_not_leave_controls_disabled(self):
