@@ -187,6 +187,7 @@ class NeedleTUI(App[None]):
         self.local_agent = None
         self.available_models: list[str] = []
         self._busy = False
+        self._detecting_models = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -224,8 +225,35 @@ class NeedleTUI(App[None]):
         try:
             self.query_one("#runtime-status", Static).update(Text(message))
         except Exception:
-            # Status updates must never interrupt a running operation.
+            # Status updates must never interrupt a running operation or shutdown.
             pass
+
+    def _safe_log(self, label: str, message: Any, style: str | None = None) -> None:
+        """Write only while the transcript is mounted; shutdown must not raise another error."""
+        try:
+            _write_log(self.query_one("#transcript", RichLog), label, message, style)
+        except Exception:
+            pass
+
+    def _safe_update(self, selector: str, widget_type: type, value: Any) -> None:
+        """Update an optional UI widget without turning a transient UI teardown into a crash."""
+        try:
+            self.query_one(selector, widget_type).update(value)
+        except Exception:
+            pass
+
+    def _set_request_controls(self, disabled: bool) -> None:
+        """Lock request controls together and tolerate widgets disappearing on shutdown."""
+        for selector, widget_type in (
+            ("#prompt", Input),
+            ("#send", Button),
+            ("#provider", Select),
+            ("#clear-transcript", Button),
+        ):
+            try:
+                self.query_one(selector, widget_type).disabled = disabled
+            except Exception:
+                pass
 
     def on_mount(self) -> None:
         log = self.query_one("#transcript", RichLog)
@@ -265,43 +293,83 @@ class NeedleTUI(App[None]):
 
     @on(Button.Pressed, "#detect-models")
     async def detect_clicked(self) -> None:
-        base = self.query_one("#base-url", Input).value
-        key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
-        status = self.query_one("#cloud-status", Static)
-        status.update("Validating API key and discovering models…")
+        # Prevent overlapping validations and configuration changes during a request.
+        if self._detecting_models or self._busy:
+            self._safe_update("#cloud-status", Static, "Finish the current operation before validating another endpoint.")
+            return
+        self._detecting_models = True
+        button = None
         try:
+            button = self.query_one("#detect-models", Button)
+            button.disabled = True
+            base = self.query_one("#base-url", Input).value
+            key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
+            self._safe_update("#cloud-status", Static, "Validating API key and discovering models…")
             self._set_runtime_status("Validating cloud endpoint · discovering models…")
             models = await asyncio.to_thread(detect_models, base, key)
-            self.available_models = models
+            if not models:
+                raise CloudAPIError("No models were returned by the endpoint.")
             selector = self.query_one("#model-select", Select)
             selector.set_options([(model, model) for model in models])
             selector.value = models[0]
+            self.available_models = models
             self.cloud_values.update({"base_url": base.rstrip("/"), "api_key": key})
-            status.update(f"✓ Key and endpoint validated. Found {len(models)} model(s); choose one and save.")
+            self._safe_update(
+                "#cloud-status", Static,
+                f"Endpoint validated. Found {len(models)} model(s); choose one and save.",
+            )
             self._set_runtime_status(f"Cloud endpoint ready · {len(models)} model(s) found")
-        except (ValueError, CloudAPIError) as exc:
+        except Exception as exc:
+            # Network libraries and filesystem-backed configuration can raise more
+            # than ValueError/CloudAPIError. Keep failures inside the UI event loop.
             self.available_models = []
-            self.query_one("#model-select", Select).set_options([])
-            status.update(Text(f"Validation failed: {exc}"))
+            try:
+                self.query_one("#model-select", Select).set_options([])
+            except Exception:
+                pass
+            self._safe_update(
+                "#cloud-status", Static,
+                Text(f"Validation failed ({type(exc).__name__}): {exc}"),
+            )
             self._set_runtime_status("Cloud validation failed · check the setup tab")
+        finally:
+            self._detecting_models = False
+            try:
+                if button is not None:
+                    button.disabled = False
+            except Exception:
+                pass
 
     @on(Button.Pressed, "#save-cloud")
     def save_cloud_clicked(self) -> None:
-        base = self.query_one("#base-url", Input).value
-        key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
-        model = self.query_one("#model-select", Select).value
-        if not isinstance(model, str) or not model:
-            self.query_one("#cloud-status", Static).update("Validate the endpoint and select a model first.")
-            return
         try:
-            self.settings.save(base, model, key,
-                               remember_key=self.query_one("#remember-key", Checkbox).value)
+            if self._busy or self._detecting_models:
+                self._safe_update("#cloud-status", Static, "Finish the current operation before saving settings.")
+                return
+            base = self.query_one("#base-url", Input).value
+            key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
+            model = self.query_one("#model-select", Select).value
+            if not isinstance(model, str) or not model.strip():
+                self._safe_update("#cloud-status", Static, "Validate the endpoint and select a model first.")
+                return
+            self.settings.save(
+                base, model, key,
+                remember_key=self.query_one("#remember-key", Checkbox).value,
+            )
             self.cloud_values = {"base_url": base.rstrip("/"), "model": model, "api_key": key}
             self.query_one("#provider", Select).value = "cloud"
-            self.query_one("#cloud-status", Static).update(Text(f"Saved {model}. Cloud planner and reviewer are ready in the Chat tab."))
+            self._safe_update(
+                "#cloud-status", Static,
+                Text(f"Saved {model}. Cloud planner and reviewer are ready in the Chat tab."),
+            )
             self._set_runtime_status(f"Cloud settings saved · {model}")
-        except ValueError as exc:
-            self.query_one("#cloud-status", Static).update(Text(f"Could not save settings: {exc}"))
+        except Exception as exc:
+            # Invalid values, disk permission errors, and unexpected provider/UI
+            # errors should be surfaced without unwinding Textual's event loop.
+            self._safe_update(
+                "#cloud-status", Static,
+                Text(f"Could not save settings ({type(exc).__name__}): {exc}"),
+            )
             self._set_runtime_status("Could not save cloud settings · check the setup tab")
 
     @on(Button.Pressed, "#send")
@@ -314,33 +382,52 @@ class NeedleTUI(App[None]):
 
     async def submit_prompt(self) -> None:
         # Enter and the Send button can fire close together; never run two tasks concurrently.
-        if self._busy:
+        if self._busy or self._detecting_models:
             return
-        prompt_box = self.query_one("#prompt", Input)
+        try:
+            prompt_box = self.query_one("#prompt", Input)
+        except Exception:
+            # Input events during teardown should be ignored, not crash the app.
+            return
         prompt = prompt_box.value.strip()
         if not prompt:
             return
 
-        provider = str(self.query_one("#provider", Select).value or "local")
+        try:
+            provider_value = self.query_one("#provider", Select).value
+        except Exception:
+            return
+        provider = provider_value if isinstance(provider_value, str) and provider_value in self.MODE_LABELS else "local"
         prompt_box.value = ""
-        prompt_box.disabled = True
-        self.query_one("#send", Button).disabled = True
-        self.query_one("#provider", Select).disabled = True
-        self.query_one("#clear-transcript", Button).disabled = True
         self._busy = True
-
-        log = self.query_one("#transcript", RichLog)
-        log.write(Text())
-        _write_log(log, "You", prompt, "bold green")
-        self._set_runtime_status(f"Working · {self.MODE_LABELS.get(provider, provider)}")
+        log: RichLog | None = None
         final_status = "Ready · request finished; inspect the transcript and verification result"
 
         try:
+            self._set_request_controls(True)
+            log = self.query_one("#transcript", RichLog)
+            log.write(Text())
+            _write_log(log, "You", prompt, "bold green")
+            self._set_runtime_status(f"Working · {self.MODE_LABELS.get(provider, provider)}")
             if provider in {"cloud", "hybrid"}:
                 base = self.query_one("#base-url", Input).value or self.cloud_values.get("base_url", "")
                 key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
-                model = self.query_one("#model-select", Select).value or self.cloud_values.get("model", "")
-                cloud_agent = CloudAgent(base, key, str(model))
+                model_value = self.query_one("#model-select", Select).value
+                saved_model = self.cloud_values.get("model", "")
+                model = model_value if isinstance(model_value, str) and model_value.strip() else saved_model
+                if not isinstance(model, str) or not model.strip():
+                    _write_log(log, "Cloud setup required",
+                               "Open Cloud setup, validate an endpoint, and select a model before using cloud mode.",
+                               "yellow")
+                    final_status = "Cloud setup required · select a model"
+                    return
+                if not isinstance(key, str) or not key.strip():
+                    _write_log(log, "Cloud setup required",
+                               "Enter an API key in Cloud setup before using cloud mode.",
+                               "yellow")
+                    final_status = "Cloud setup required · enter an API key"
+                    return
+                cloud_agent = CloudAgent(base, key, model)
                 self._set_runtime_status("Working · requesting advisory cloud plan")
                 plan = await asyncio.to_thread(cloud_agent.plan, prompt)
                 _write_log(log, "Cloud plan · advisory", plan, "bold blue")
@@ -369,6 +456,11 @@ class NeedleTUI(App[None]):
                         cloud_result = await asyncio.to_thread(
                             cloud_agent.propose_tools, prompt, plan, _bounded_outcomes(all_outcomes), round_number
                         )
+                        if not isinstance(cloud_result, dict):
+                            cloud_result = {
+                                "assistant_message": "Cloud returned an invalid proposal structure; no cloud action was accepted.",
+                                "function_calls": [],
+                            }
                         _write_log(log, "Hybrid round", f"{round_number}/{MAX_HYBRID_ROUNDS}", "dim")
                         if cloud_result.get("assistant_message"):
                             _write_log(log, "Cloud proposals · untrusted, host-validated",
@@ -432,15 +524,16 @@ class NeedleTUI(App[None]):
                 await self._show_and_handle_result(result, cloud=False, request_prompt=prompt)
         except Exception as exc:
             final_status = "Error · see transcript for details"
-            _write_log(log, "Error", exc, "bold red")
+            self._safe_log("Error", f"{type(exc).__name__}: {exc}", "bold red")
         finally:
             self._busy = False
-            prompt_box.disabled = False
-            self.query_one("#send", Button).disabled = False
-            self.query_one("#provider", Select).disabled = False
-            self.query_one("#clear-transcript", Button).disabled = False
+            self._set_request_controls(False)
             self._set_runtime_status(final_status)
-            prompt_box.focus()
+            try:
+                prompt_box.focus()
+            except Exception:
+                # The app may be shutting down while a worker thread completes.
+                pass
 
     async def _ask_approval(self, name: str, arguments: dict, cloud: bool) -> bool:
         loop = asyncio.get_running_loop()
@@ -451,10 +544,13 @@ class NeedleTUI(App[None]):
         await self.push_screen(ApprovalDialog(name, arguments, cloud), callback=dismissed)
         return await result
 
-    async def _show_and_handle_result(self, result: dict, cloud: bool, request_prompt: str = "",
+    async def _show_and_handle_result(self, result: Any, cloud: bool, request_prompt: str = "",
                                       attempted_signatures: set[str] | None = None) -> list[dict]:
         log = self.query_one("#transcript", RichLog)
         outcomes: list[dict] = []
+        if not isinstance(result, dict):
+            _write_log(log, "Rejected", "The model returned an invalid response structure; no action was executed.", "red")
+            return [{"status": "rejected", "reason": "invalid model response structure"}]
         if result.get("assistant_message"):
             _write_log(log, "Assistant", result["assistant_message"], "cyan")
         calls = result.get("function_calls", [])
