@@ -1,4 +1,4 @@
-"""OpenAI-compatible cloud API support with explicit model discovery and narrow tools."""
+"""OpenAI-compatible cloud planning, advisory tool proposals, and outcome review."""
 from __future__ import annotations
 
 import json
