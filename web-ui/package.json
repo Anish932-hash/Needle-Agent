@@ -1,0 +1,14 @@
+{
+  "name": "needle-agent-web-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Loopback-only Node web console for Needle Agent",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test server.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
