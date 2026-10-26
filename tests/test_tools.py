@@ -59,7 +59,8 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_search_finds_names_and_text_without_exposing_memory(self):
         self.ws.write_file("docs/plan.txt", "Project Aurora opens in May\nsecond line")
-        # Simulate the internal store, which is written by its own persistence layer.\n        (self.ws.root / ".needle-agent-memory.json").write_text("private Aurora token", encoding="utf-8")
+        # Simulate the internal store, which is written by its own persistence layer.
+        (self.ws.root / ".needle-agent-memory.json").write_text("private Aurora token", encoding="utf-8")
         found = dispatch(self.ws, "search_workspace", {"query": "aurora"})
         self.assertEqual(len(found["matches"]), 1)
         self.assertEqual(found["matches"][0]["path"], "docs/plan.txt")
