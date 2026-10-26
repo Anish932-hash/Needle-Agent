@@ -1,4 +1,4 @@
-""""Needle 3 integration and conservative tool execution."""
+"""Needle 3 integration and conservative tool execution."""
 from __future__ import annotations
 
 from typing import Any, Literal
