@@ -24,13 +24,42 @@ class WorkspaceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.ws.resolve("../outside.txt")
 
+    def test_internal_store_paths_are_reserved_from_workspace_tools(self):
+        reserved = (
+            ".needle-agent-memory.json",
+            ".needle-agent-conversation.json",
+            ".needle-agent-capabilities.json",
+        )
+        for path in reserved:
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "reserved"):
+                self.ws.write_file(path, "poison")
+            with self.subTest(path=path + " read"), self.assertRaisesRegex(ValueError, "reserved"):
+                self.ws.read_file(path)
+            with self.subTest(path=path + " normalized"), self.assertRaisesRegex(ValueError, "reserved"):
+                self.ws.resolve("nested/../" + path)
+
+    def test_workspace_path_length_is_bounded(self):
+        with self.assertRaisesRegex(ValueError, "Workspace path"):
+            self.ws.resolve("x" * 4097)
+
+    def test_write_to_inside_workspace_symlink_is_confined_to_resolved_target(self):
+        target = self.ws.root / "target.txt"
+        target.write_text("old", encoding="utf-8")
+        link = self.ws.root / "alias.txt"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        self.ws.write_file("alias.txt", "replacement")
+        self.assertEqual(target.read_text(encoding="utf-8"), "replacement")
+
     def test_unknown_tool_rejected(self):
         with self.assertRaises(ValueError):
             dispatch(self.ws, "run_shell", {})
 
     def test_search_finds_names_and_text_without_exposing_memory(self):
         self.ws.write_file("docs/plan.txt", "Project Aurora opens in May\nsecond line")
-        self.ws.write_file(".needle-agent-memory.json", "private Aurora token")
+        # Simulate the internal store, which is written by its own persistence layer.\n        (self.ws.root / ".needle-agent-memory.json").write_text("private Aurora token", encoding="utf-8")
         found = dispatch(self.ws, "search_workspace", {"query": "aurora"})
         self.assertEqual(len(found["matches"]), 1)
         self.assertEqual(found["matches"][0]["path"], "docs/plan.txt")
