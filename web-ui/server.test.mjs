@@ -10,7 +10,7 @@ after(async () => {
   await Promise.all(runningApps.map((app) => app.close()));
 });
 
-test("serves the UI locally, protects its API, and forwards validated JSON", async () => {
+test("serves the UI locally, protects its API, and validates requests", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "needle-web-ui-test-"));
   const app = createWebServer({ workspace });
   runningApps.push(app);
@@ -30,6 +30,16 @@ test("serves the UI locally, protects its API, and forwards validated JSON", asy
     const match = html.match(/<meta name="needle-boot-token" content="([a-f0-9]{64})">/);
     assert.ok(match, "server should insert a per-instance browser token");
     const token = match[1];
+
+    const scriptResponse = await fetch(base + "/app.js");
+    assert.equal(scriptResponse.status, 200);
+    assert.match(scriptResponse.headers.get("content-type") || "", /javascript/);
+    assert.match(await scriptResponse.text(), /\/api\/chat/);
+
+    const cssResponse = await fetch(base + "/styles.css");
+    assert.equal(cssResponse.status, 200);
+    assert.match(cssResponse.headers.get("content-type") || "", /text\/css/);
+    assert.match(await cssResponse.text(), /--accent/);
 
     const noToken = await fetch(base + "/api/status");
     assert.equal(noToken.status, 403);
@@ -54,6 +64,13 @@ test("serves the UI locally, protects its API, and forwards validated JSON", asy
     });
     assert.equal(invalidChat.status, 400);
     assert.match((await invalidChat.json()).error, /Enter a request/);
+
+    const wrongContentType = await fetch(base + "/api/chat", {
+      method: "POST",
+      headers: { "X-Needle-Token": token, "Content-Type": "text/plain" },
+      body: "{}",
+    });
+    assert.equal(wrongContentType.status, 415);
 
     const notFound = await fetch(base + "/not-a-route");
     assert.equal(notFound.status, 404);
