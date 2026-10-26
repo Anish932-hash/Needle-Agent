@@ -24,6 +24,19 @@ class WorkspaceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.ws.resolve("../outside.txt")
 
+    def test_symlinked_workspace_root_is_canonicalized(self):
+        real_root = Path(self.tmp.name) / "real-workspace"
+        real_root.mkdir()
+        root_link = Path(self.tmp.name) / "workspace-link"
+        try:
+            root_link.symlink_to(real_root, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        linked_workspace = Workspace(root_link)
+        self.assertEqual(linked_workspace.root, real_root.resolve())
+        linked_workspace.write_file("inside.txt", "confined")
+        self.assertEqual((real_root / "inside.txt").read_text(encoding="utf-8"), "confined")
+
     def test_internal_store_paths_are_reserved_from_workspace_tools(self):
         reserved = (
             ".needle-agent-memory.json",
