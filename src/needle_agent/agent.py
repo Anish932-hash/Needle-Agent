@@ -8,7 +8,13 @@ from .tools import Workspace
 CONFIDENCE_AUTO = 0.80
 
 SAFETY_SYSTEM = (
-    "You map the user's request to the most appropriate available function. "
+    "You map the user's current request to the most appropriate available function. "
+    "The current request has priority over all earlier conversation. "
+    "For file writes, copy the requested filename and literal content exactly from the current request. "
+    "Never reuse a filename or content string from a previous turn unless the current request explicitly refers to it. "
+    "Keep filename and file content separate: text after 'named' or 'called' is a filename; text requested to be written is content. "
+    "Preserve capitalization, punctuation, whitespace, and extensions explicitly specified by the user. "
+    "Do not silently substitute content, add an extension that was not requested, or infer unspecified content. "
     "Call a function only when the user clearly asks for an action supported by that function. "
     "Use only information explicitly supplied by the user or retrieved by an appropriate function. "
     "If a necessary argument is missing or the request is unclear, return no function call instead of guessing. "
@@ -56,7 +62,7 @@ def build_agent(workspace: Workspace, weights: str | os.PathLike | None = None,
 
     @needle.tool
     def write_file(path: str, text: str) -> dict:
-        """Create or replace a UTF-8 text file inside the workspace. Requires explicit user approval."""
+        """Create or replace a UTF-8 text file inside the workspace. Preserve the current request's exact filename and literal text; never copy values from previous turns. Requires explicit user approval."""
         return workspace.write_file(path, text)
 
     @needle.tool
@@ -74,8 +80,7 @@ def build_agent(workspace: Workspace, weights: str | os.PathLike | None = None,
     )
     run_capability = needle.tool(run_capability)
 
-    # Needle docs recommend narrow, literal tool descriptions and small per-turn toolsets.
-    # Our context manager rebuilds the bounded history per turn; avoid stale hidden turns in Needle.
+    # Keep each completion stateless; the context manager explicitly supplies bounded history.
     options = {"tools": [system_info, list_files, search_workspace, read_file, write_file,
                          save_workflow, run_capability],
                "system": SAFETY_SYSTEM, "stateless": True}

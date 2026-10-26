@@ -16,6 +16,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, RichLog, Select, Static, TabbedContent, TabPane
 
 from .agent import build_agent, dispatch, validate_call
+from .request_guard import ground_explicit_write
 from .cloud import CloudAgent, CloudAPIError, CloudSettings, detect_models
 from .tools import Workspace
 
@@ -98,7 +99,7 @@ class NeedleTUI(App[None]):
                 with Vertical(id="chat-layout"):
                     yield RichLog(id="transcript", wrap=True, markup=False, auto_scroll=True)
                     with Horizontal(id="chat-controls"):
-                        yield Select([( "Local Needle", "local"), ("Cloud plan + local Needle", "cloud")], value="local", id="provider")
+                        yield Select([("Local Needle", "local"), ("Cloud plan + local Needle", "cloud"), ("Hybrid: Needle + Cloud tools", "hybrid")], value="local", id="provider")
                         yield Input(placeholder="Ask naturally…  (press Enter to send)", id="prompt")
                         yield Button("Send", variant="primary", id="send")
             with TabPane("Cloud setup", id="cloud-tab"):
@@ -117,7 +118,7 @@ class NeedleTUI(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#transcript", RichLog).write("[bold cyan]Needle Agent[/bold cyan] — choose Local Needle or Cloud plan + local execution, then ask in plain language. Cloud proposes a plan and reviews results; only local Needle may propose actions. Every local action requires approval.")
+        self.query_one("#transcript", RichLog).write("[bold cyan]Needle Agent[/bold cyan] — choose Local Needle, Cloud plan + local Needle, or Hybrid. Hybrid combines local Needle and cloud-proposed allowlisted tool calls; the host validates each call and asks approval before local execution.")
         self.query_one("#base-url", Input).value = self.cloud_values["base_url"]
         if self.cloud_values["api_key"]:
             self.query_one("#api-key", Input).value = self.cloud_values["api_key"]
@@ -191,7 +192,7 @@ class NeedleTUI(App[None]):
         log.write(f"\n[bold green]You[/bold green]  {prompt}")
         provider = self.query_one("#provider", Select).value
         try:
-            if provider == "cloud":
+            if provider in {"cloud", "hybrid"}:
                 base = self.query_one("#base-url", Input).value or self.cloud_values.get("base_url", "")
                 key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
                 model = self.query_one("#model-select", Select).value or self.cloud_values.get("model", "")
@@ -207,7 +208,27 @@ class NeedleTUI(App[None]):
                     "You are the local Needle executor. Propose only locally supported actions needed for the user's request."
                 )
                 result = await asyncio.to_thread(self.local_agent.complete, local_request)
-                outcomes = await self._show_and_handle_result(result, cloud=True)
+                if provider == "hybrid":
+                    cloud_result = await asyncio.to_thread(cloud_agent.propose_tools, prompt, plan)
+                    log.write(f"[bold blue]Cloud tool proposals (untrusted; host-validated)[/bold blue]  {cloud_result.get('assistant_message', '')}")
+                    local_calls = result.get("function_calls", []) if isinstance(result, dict) else []
+                    cloud_calls = cloud_result.get("function_calls", [])
+                    combined = []
+                    seen = set()
+                    for source, calls in (("local Needle", local_calls), ("cloud", cloud_calls)):
+                        for call in calls if isinstance(calls, list) else []:
+                            if not isinstance(call, dict):
+                                combined.append(call)
+                                continue
+                            signature = json.dumps({"name": call.get("name"), "arguments": call.get("arguments")},
+                                                   sort_keys=True, ensure_ascii=False)
+                            if signature in seen:
+                                continue
+                            seen.add(signature)
+                            combined.append({**call, "_source": source})
+                    result = {"assistant_message": result.get("assistant_message", "") if isinstance(result, dict) else "",
+                              "function_calls": combined[:6]}
+                outcomes = await self._show_and_handle_result(result, cloud=True, request_prompt=prompt)
                 verdict = await asyncio.to_thread(cloud_agent.review, prompt, plan, outcomes)
                 log.write(f"[bold blue]Cloud verification (review only)[/bold blue]  {verdict}")
             else:
@@ -215,7 +236,7 @@ class NeedleTUI(App[None]):
                     self.local_agent = await asyncio.to_thread(build_agent, self.workspace,
                                                                weights=self.weights, engine_path=self.engine)
                 result = await asyncio.to_thread(self.local_agent.complete, prompt)
-                await self._show_and_handle_result(result, cloud=False)
+                await self._show_and_handle_result(result, cloud=False, request_prompt=prompt)
         except Exception as exc:
             log.write(f"[bold red]Error[/bold red]  {exc}")
 
@@ -228,7 +249,7 @@ class NeedleTUI(App[None]):
         await self.push_screen(ApprovalDialog(name, arguments, cloud), callback=dismissed)
         return await result
 
-    async def _show_and_handle_result(self, result: dict, cloud: bool) -> list[dict]:
+    async def _show_and_handle_result(self, result: dict, cloud: bool, request_prompt: str = "") -> list[dict]:
         log = self.query_one("#transcript", RichLog)
         outcomes: list[dict] = []
         if result.get("assistant_message"):
@@ -237,17 +258,22 @@ class NeedleTUI(App[None]):
         if not isinstance(calls, list) or not calls:
             log.write("[dim]No tool action proposed.[/dim]")
             return outcomes
-        for call in calls[:3]:
+        for call in calls[:6]:
             if not isinstance(call, dict):
                 log.write("[red]Rejected malformed tool proposal.[/red]")
                 outcomes.append({"status": "rejected", "reason": "malformed proposal"})
                 continue
             try:
                 name, arguments = validate_call(call.get("name"), call.get("arguments"))
+                arguments, corrected = ground_explicit_write(request_prompt, name, arguments)
+                if corrected:
+                    log.write("[yellow]Request guard[/yellow]  Corrected explicit filename/content to match the current request.")
             except ValueError as exc:
                 log.write(f"[red]Rejected proposal: {exc}[/red]")
                 outcomes.append({"status": "rejected", "reason": str(exc)})
                 continue
+            source = call.get("_source", "local Needle")
+            log.write(f"[dim]Proposed by: {source}[/dim]")
             approved = await self._ask_approval(name, arguments, cloud)
             if not approved:
                 log.write(f"[yellow]Denied[/yellow]  {name}")
