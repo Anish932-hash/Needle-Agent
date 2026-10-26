@@ -382,9 +382,13 @@ class NeedleTUI(App[None]):
 
     async def submit_prompt(self) -> None:
         # Enter and the Send button can fire close together; never run two tasks concurrently.
-        if self._busy:
+        if self._busy or self._detecting_models:
             return
-        prompt_box = self.query_one("#prompt", Input)
+        try:
+            prompt_box = self.query_one("#prompt", Input)
+        except Exception:
+            # Input events during teardown should be ignored, not crash the app.
+            return
         prompt = prompt_box.value.strip()
         if not prompt:
             return
@@ -396,19 +400,33 @@ class NeedleTUI(App[None]):
         self.query_one("#provider", Select).disabled = True
         self.query_one("#clear-transcript", Button).disabled = True
         self._busy = True
-
-        log = self.query_one("#transcript", RichLog)
-        log.write(Text())
-        _write_log(log, "You", prompt, "bold green")
-        self._set_runtime_status(f"Working · {self.MODE_LABELS.get(provider, provider)}")
+        log: RichLog | None = None
         final_status = "Ready · request finished; inspect the transcript and verification result"
 
         try:
+            log = self.query_one("#transcript", RichLog)
+            log.write(Text())
+            _write_log(log, "You", prompt, "bold green")
+            self._set_runtime_status(f"Working · {self.MODE_LABELS.get(provider, provider)}")
             if provider in {"cloud", "hybrid"}:
                 base = self.query_one("#base-url", Input).value or self.cloud_values.get("base_url", "")
                 key = self.query_one("#api-key", Input).value or self.cloud_values.get("api_key", "")
-                model = self.query_one("#model-select", Select).value or self.cloud_values.get("model", "")
-                cloud_agent = CloudAgent(base, key, str(model))
+                model_value = self.query_one("#model-select", Select).value
+                saved_model = self.cloud_values.get("model", "")
+                model = model_value if isinstance(model_value, str) and model_value.strip() else saved_model
+                if not isinstance(model, str) or not model.strip():
+                    _write_log(log, "Cloud setup required",
+                               "Open Cloud setup, validate an endpoint, and select a model before using cloud mode.",
+                               "yellow")
+                    final_status = "Cloud setup required · select a model"
+                    return
+                if not isinstance(key, str) or not key.strip():
+                    _write_log(log, "Cloud setup required",
+                               "Enter an API key in Cloud setup before using cloud mode.",
+                               "yellow")
+                    final_status = "Cloud setup required · enter an API key"
+                    return
+                cloud_agent = CloudAgent(base, key, model)
                 self._set_runtime_status("Working · requesting advisory cloud plan")
                 plan = await asyncio.to_thread(cloud_agent.plan, prompt)
                 _write_log(log, "Cloud plan · advisory", plan, "bold blue")
@@ -437,6 +455,11 @@ class NeedleTUI(App[None]):
                         cloud_result = await asyncio.to_thread(
                             cloud_agent.propose_tools, prompt, plan, _bounded_outcomes(all_outcomes), round_number
                         )
+                        if not isinstance(cloud_result, dict):
+                            cloud_result = {
+                                "assistant_message": "Cloud returned an invalid proposal structure; no cloud action was accepted.",
+                                "function_calls": [],
+                            }
                         _write_log(log, "Hybrid round", f"{round_number}/{MAX_HYBRID_ROUNDS}", "dim")
                         if cloud_result.get("assistant_message"):
                             _write_log(log, "Cloud proposals · untrusted, host-validated",
@@ -500,15 +523,16 @@ class NeedleTUI(App[None]):
                 await self._show_and_handle_result(result, cloud=False, request_prompt=prompt)
         except Exception as exc:
             final_status = "Error · see transcript for details"
-            _write_log(log, "Error", exc, "bold red")
+            self._safe_log("Error", f"{type(exc).__name__}: {exc}", "bold red")
         finally:
             self._busy = False
-            prompt_box.disabled = False
-            self.query_one("#send", Button).disabled = False
-            self.query_one("#provider", Select).disabled = False
-            self.query_one("#clear-transcript", Button).disabled = False
+            self._set_request_controls(False)
             self._set_runtime_status(final_status)
-            prompt_box.focus()
+            try:
+                prompt_box.focus()
+            except Exception:
+                # The app may be shutting down while a worker thread completes.
+                pass
 
     async def _ask_approval(self, name: str, arguments: dict, cloud: bool) -> bool:
         loop = asyncio.get_running_loop()
@@ -519,10 +543,13 @@ class NeedleTUI(App[None]):
         await self.push_screen(ApprovalDialog(name, arguments, cloud), callback=dismissed)
         return await result
 
-    async def _show_and_handle_result(self, result: dict, cloud: bool, request_prompt: str = "",
+    async def _show_and_handle_result(self, result: Any, cloud: bool, request_prompt: str = "",
                                       attempted_signatures: set[str] | None = None) -> list[dict]:
         log = self.query_one("#transcript", RichLog)
         outcomes: list[dict] = []
+        if not isinstance(result, dict):
+            _write_log(log, "Rejected", "The model returned an invalid response structure; no action was executed.", "red")
+            return [{"status": "rejected", "reason": "invalid model response structure"}]
         if result.get("assistant_message"):
             _write_log(log, "Assistant", result["assistant_message"], "cyan")
         calls = result.get("function_calls", [])
