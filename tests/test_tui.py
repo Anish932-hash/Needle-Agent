@@ -196,5 +196,113 @@ class TUITests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+    def test_missing_cloud_model_is_reported_without_crashing(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as temp:
+                with patch("needle_agent.tui.CloudSettings") as settings_class:
+                    settings_class.return_value.load.return_value = {
+                        "base_url": "https://api.example.com/v1", "model": "", "api_key": "",
+                    }
+                    app = NeedleTUI(Path(temp))
+                    with patch("needle_agent.tui.CloudAgent") as cloud_factory:
+                        async with app.run_test(size=(120, 50)) as pilot:
+                            app.query_one("#provider").value = "cloud"
+                            app.query_one("#prompt").value = "Plan a task"
+                            await pilot.pause(0.1)
+                            await app.submit_prompt()
+                            await pilot.pause(0.1)
+                            cloud_factory.assert_not_called()
+                            self.assertFalse(app._busy)
+                            self.assertFalse(app.query_one("#send").disabled)
+                            status = app.query_one("#runtime-status").render()
+                            rendered = status.plain if hasattr(status, "plain") else str(status)
+                            self.assertIn("select a model", rendered.lower())
+        asyncio.run(scenario())
+
+    def test_unexpected_model_discovery_error_is_contained_and_unlocks_button(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as temp:
+                app = NeedleTUI(Path(temp))
+                with patch("needle_agent.tui.detect_models", side_effect=RuntimeError("provider exploded")):
+                    async with app.run_test(size=(120, 50)) as pilot:
+                        app.action_show_setup()
+                        await pilot.pause(0.1)
+                        app.query_one("#base-url").value = "https://api.example.com/v1"
+                        app.query_one("#api-key").value = "test-key"
+                        await pilot.click("#detect-models")
+                        await pilot.pause(0.2)
+                        self.assertFalse(app._detecting_models)
+                        self.assertFalse(app.query_one("#detect-models").disabled)
+                        status = app.query_one("#cloud-status").render()
+                        rendered = status.plain if hasattr(status, "plain") else str(status)
+                        self.assertIn("RuntimeError", rendered)
+                        self.assertIn("provider exploded", rendered)
+        asyncio.run(scenario())
+
+    def test_cloud_save_filesystem_error_is_contained(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as temp:
+                app = NeedleTUI(Path(temp))
+                with patch.object(app.settings, "save", side_effect=OSError("read-only config directory")):
+                    async with app.run_test(size=(120, 50)) as pilot:
+                        app.action_show_setup()
+                        await pilot.pause(0.1)
+                        app.query_one("#model-select").set_options([("model-a", "model-a")])
+                        app.query_one("#model-select").value = "model-a"
+                        await pilot.click("#save-cloud")
+                        await pilot.pause(0.2)
+                        status = app.query_one("#cloud-status").render()
+                        rendered = status.plain if hasattr(status, "plain") else str(status)
+                        self.assertIn("OSError", rendered)
+                        self.assertIn("read-only config directory", rendered)
+        asyncio.run(scenario())
+
+    def test_invalid_model_response_is_rejected_and_controls_unlock(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as temp:
+                app = NeedleTUI(Path(temp))
+                class InvalidLocal:
+                    def complete(self, prompt):
+                        return None
+                app.local_agent = InvalidLocal()
+                with patch("needle_agent.tui._write_log", wraps=_write_log) as write_log:
+                    async with app.run_test() as pilot:
+                        app.query_one("#prompt").value = "do something"
+                        await pilot.pause(0.1)
+                        await app.submit_prompt()
+                        await pilot.pause(0.1)
+                        self.assertFalse(app._busy)
+                        self.assertFalse(app.query_one("#send").disabled)
+                        self.assertFalse(app.query_one("#prompt").disabled)
+                        # The invalid response is handled as a rejected proposal, not an app exception.
+                        self.assertTrue(any(
+                            call.args[1] == "Rejected"
+                            and "invalid response structure" in str(call.args[2]).lower()
+                            for call in write_log.call_args_list
+                        ))
+        asyncio.run(scenario())
+
+    def test_local_runtime_exception_does_not_leave_controls_disabled(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as temp:
+                app = NeedleTUI(Path(temp))
+                class BrokenLocal:
+                    def complete(self, prompt):
+                        raise RuntimeError("simulated runtime failure")
+                app.local_agent = BrokenLocal()
+                async with app.run_test() as pilot:
+                    app.query_one("#prompt").value = "request"
+                    await pilot.pause(0.1)
+                    await app.submit_prompt()
+                    await pilot.pause(0.1)
+                    self.assertFalse(app._busy)
+                    self.assertFalse(app.query_one("#send").disabled)
+                    self.assertFalse(app.query_one("#prompt").disabled)
+                    status = app.query_one("#runtime-status").render()
+                    rendered = status.plain if hasattr(status, "plain") else str(status)
+                    self.assertIn("Error", rendered)
+        asyncio.run(scenario())
+
+
 if __name__ == "__main__":
     unittest.main()
