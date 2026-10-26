@@ -13,10 +13,17 @@ class ConversationMemory:
     """Remember recent tasks locally and compact older turns to a strict character budget."""
     def __init__(self, path: Path, *, max_context_chars: int = 6000,
                  keep_recent: int = 8, max_summary_chars: int = 1800):
+        for label, value in (("max_context_chars", max_context_chars),
+                             ("keep_recent", keep_recent),
+                             ("max_summary_chars", max_summary_chars)):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{label} must be a positive integer")
         self.path = path
         self.max_context_chars = max_context_chars
         self.keep_recent = keep_recent
-        self.max_summary_chars = max_summary_chars
+        # A summary larger than the whole context budget would make _compact()
+        # unable to satisfy its invariant even after all recent turns were removed.
+        self.max_summary_chars = min(max_summary_chars, max_context_chars)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data = self._load()
         raw_summary = data.get("summary", "")
@@ -25,6 +32,7 @@ class ConversationMemory:
         self.turns = [item for item in raw_turns if isinstance(item, dict)
                       and isinstance(item.get("user"), str) and isinstance(item.get("outcome"), str)][-self.keep_recent:] \
             if isinstance(raw_turns, list) else []
+        self._compact()
 
     def _load(self) -> dict[str, Any]:
         try:
@@ -50,7 +58,10 @@ class ConversationMemory:
             fragment = f"Earlier task: {old['user']} — {old['outcome']}"
             self.summary = (self.summary + "\n" + fragment).strip()
             if len(self.summary) > self.max_summary_chars:
-                self.summary = "…" + self.summary[-(self.max_summary_chars - 1):]
+                if self.max_summary_chars == 1:
+                    self.summary = "…"
+                else:
+                    self.summary = "…" + self.summary[-(self.max_summary_chars - 1):]
 
     def _estimated_chars(self) -> int:
         return len(self.summary) + sum(len(t["user"]) + len(t["outcome"]) + 24 for t in self.turns)

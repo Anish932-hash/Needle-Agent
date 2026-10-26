@@ -29,6 +29,23 @@ class ConversationMemoryTests(unittest.TestCase):
         self.assertLessEqual(status["recent_turns"], 2)
         self.assertGreater(status["summary_characters"], 0)
 
+    def test_summary_is_capped_by_the_total_context_budget(self):
+        memory = ConversationMemory(self.path, max_context_chars=64, keep_recent=8,
+                                    max_summary_chars=1000)
+        for i in range(12):
+            memory.add("task " + str(i) + " x" * 80, "outcome y" * 80)
+        self.assertLessEqual(memory._estimated_chars(), 64)
+        self.assertLessEqual(len(memory.summary), 64)
+
+    def test_invalid_budgets_are_rejected(self):
+        for options in (
+            {"max_context_chars": 0},
+            {"keep_recent": 0},
+            {"max_summary_chars": 0},
+        ):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                ConversationMemory(self.path, **options)
+
     def test_context_prefers_relevant_turns_and_keeps_latest(self):
         memory = ConversationMemory(self.path, keep_recent=10)
         memory.add("Find Aurora launch note", "search_workspace succeeded")

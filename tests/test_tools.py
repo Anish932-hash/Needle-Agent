@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,13 +25,78 @@ class WorkspaceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.ws.resolve("../outside.txt")
 
+    def test_symlinked_workspace_root_is_canonicalized(self):
+        real_root = Path(self.tmp.name) / "real-workspace"
+        real_root.mkdir()
+        root_link = Path(self.tmp.name) / "workspace-link"
+        try:
+            root_link.symlink_to(real_root, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        linked_workspace = Workspace(root_link)
+        self.assertEqual(linked_workspace.root, real_root.resolve())
+        linked_workspace.write_file("inside.txt", "confined")
+        self.assertEqual((real_root / "inside.txt").read_text(encoding="utf-8"), "confined")
+
+    def test_internal_store_paths_are_reserved_from_workspace_tools(self):
+        reserved = (
+            ".needle-agent-memory.json",
+            ".needle-agent-conversation.json",
+            ".needle-agent-capabilities.json",
+        )
+        for path in reserved:
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "reserved"):
+                self.ws.write_file(path, "poison")
+            with self.subTest(path=path + " read"), self.assertRaisesRegex(ValueError, "reserved"):
+                self.ws.read_file(path)
+            with self.subTest(path=path + " normalized"), self.assertRaisesRegex(ValueError, "reserved"):
+                self.ws.resolve("nested/../" + path)
+
+    def test_workspace_path_length_is_bounded(self):
+        with self.assertRaisesRegex(ValueError, "Workspace path"):
+            self.ws.resolve("x" * 4097)
+
+    def test_write_to_inside_workspace_symlink_is_confined_to_resolved_target(self):
+        target = self.ws.root / "target.txt"
+        target.write_text("old", encoding="utf-8")
+        link = self.ws.root / "alias.txt"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        self.ws.write_file("alias.txt", "replacement")
+        self.assertEqual(target.read_text(encoding="utf-8"), "replacement")
+
+    def test_write_rejects_parent_symlink_swap_after_resolution(self):
+        if not self.ws._supports_secure_dirfd():
+            self.skipTest("descriptor-relative no-follow I/O unavailable")
+        nested = self.ws.root / "nested"
+        nested.mkdir()
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        outside_file = outside / "escape.txt"
+        original_resolve = self.ws.resolve
+
+        def resolve_then_swap(raw):
+            resolved = original_resolve(raw)
+            if raw == "nested/escape.txt":
+                nested.rename(self.ws.root / "nested-original")
+                (self.ws.root / "nested").symlink_to(outside, target_is_directory=True)
+            return resolved
+
+        self.ws.resolve = resolve_then_swap
+        with self.assertRaises((OSError, ValueError)):
+            self.ws.write_file("nested/escape.txt", "must not escape")
+        self.assertFalse(outside_file.exists())
+
     def test_unknown_tool_rejected(self):
         with self.assertRaises(ValueError):
             dispatch(self.ws, "run_shell", {})
 
     def test_search_finds_names_and_text_without_exposing_memory(self):
         self.ws.write_file("docs/plan.txt", "Project Aurora opens in May\nsecond line")
-        self.ws.write_file(".needle-agent-memory.json", "private Aurora token")
+        # Simulate the internal store, which is written by its own persistence layer.
+        (self.ws.root / ".needle-agent-memory.json").write_text("private Aurora token", encoding="utf-8")
         found = dispatch(self.ws, "search_workspace", {"query": "aurora"})
         self.assertEqual(len(found["matches"]), 1)
         self.assertEqual(found["matches"][0]["path"], "docs/plan.txt")
@@ -63,16 +129,35 @@ class WorkspaceTests(unittest.TestCase):
             with self.subTest(query_len=len(query)), self.assertRaises(ValueError):
                 self.ws.search_workspace(query)
 
-    def test_current_workspace_alias_is_canonicalized(self):
-        name, args = validate_call("list_files", {"path": "current workspace"})
-        self.assertEqual(name, "list_files")
-        self.assertEqual(args["path"], ".")
+    def test_workspace_alias_phrasing_is_canonicalized(self):
+        for phrase in ("current workspace", "the workspace folder", "my workspace directory",
+                       "workspace root", "the workspace contents"):
+            with self.subTest(phrase=phrase):
+                name, args = validate_call("list_files", {"path": phrase})
+                self.assertEqual(name, "list_files")
+                self.assertEqual(args["path"], ".")
+
+    def test_argument_errors_name_the_offending_fields(self):
+        with self.assertRaisesRegex(ValueError, "recursive"):
+            validate_call("list_files", {"path": ".", "recursive": True})
+        with self.assertRaisesRegex(ValueError, "path"):
+            validate_call("read_file", {})
 
     def test_malformed_and_extra_arguments_rejected(self):
         for name, args in [("read_file", {}), ("list_files", {"path": ".", "recursive": True}),
                            ("write_file", {"path": "x", "text": 1})]:
             with self.subTest(name=name, args=args), self.assertRaises(ValueError):
                 validate_call(name, args)
+
+    def test_atomic_write_preserves_existing_file_permissions(self):
+        if os.name == "nt":
+            self.skipTest("POSIX mode bits are not portable on Windows")
+        path = self.ws.root / "private.txt"
+        path.write_text("old", encoding="utf-8")
+        path.chmod(0o600)
+        self.ws.write_file("private.txt", "new")
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(path.read_text(encoding="utf-8"), "new")
 
     def test_size_limit(self):
         with self.assertRaises(ValueError):
