@@ -32,6 +32,7 @@ class ConversationMemory:
         self.turns = [item for item in raw_turns if isinstance(item, dict)
                       and isinstance(item.get("user"), str) and isinstance(item.get("outcome"), str)][-self.keep_recent:] \
             if isinstance(raw_turns, list) else []
+        self._compact()
 
     def _load(self) -> dict[str, Any]:
         try:
