@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
+from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -23,6 +24,16 @@ from .tools import Workspace
 
 MAX_HYBRID_ROUNDS = 3
 MAX_HYBRID_ACTIONS = 6
+
+
+def _write_log(log: RichLog, label: str, message: Any, style: str | None = None) -> None:
+    """Style fixed labels but render model/user-controlled content as literal text."""
+    line = Text()
+    if label:
+        line.append(label, style=style)
+        line.append("  ")
+    line.append(str(message))
+    log.write(line)
 
 
 def _action_signature(name: str, arguments: dict[str, Any]) -> str:
@@ -138,10 +149,13 @@ class NeedleTUI(App[None]):
     CSS = """
     Screen { background: $background; }
     TabbedContent { height: 1fr; }
-    #chat-layout { height: 1fr; }
+    #chat-layout { height: 1fr; padding: 0 1; }
+    #chat-toolbar { height: 3; margin-bottom: 1; }
+    #provider { width: 32; }
+    #runtime-status { width: 1fr; height: 3; padding: 1; border: round $secondary; }
+    #clear-transcript { width: 12; margin-left: 1; }
     #transcript { height: 1fr; border: round $primary; padding: 1; }
     #chat-controls { height: 3; margin-top: 1; }
-    #provider { width: 18; }
     #prompt { width: 1fr; }
     #send { width: 14; }
     #setup-layout { padding: 1 2; height: 1fr; overflow-y: auto; }
@@ -156,6 +170,12 @@ class NeedleTUI(App[None]):
     BINDINGS = [("ctrl+q", "quit", "Quit"), ("ctrl+1", "show_chat", "Chat"),
                 ("ctrl+2", "show_setup", "Cloud setup")]
 
+    MODE_LABELS = {
+        "local": "Local Needle",
+        "cloud": "Cloud plan + local Needle",
+        "hybrid": "Hybrid: Needle + Cloud tools",
+    }
+
     def __init__(self, workspace: Path, weights: str | None = None,
                  engine: str | None = None):
         super().__init__()
@@ -166,16 +186,24 @@ class NeedleTUI(App[None]):
         self.cloud_values = self.settings.load()
         self.local_agent = None
         self.available_models: list[str] = []
+        self._busy = False
 
     def compose(self) -> ComposeResult:
         yield Header()
         with TabbedContent(initial="chat-tab"):
             with TabPane("Chat", id="chat-tab"):
                 with Vertical(id="chat-layout"):
+                    with Horizontal(id="chat-toolbar"):
+                        yield Select([
+                            ("Local · Needle only", "local"),
+                            ("Cloud plan · local actions", "cloud"),
+                            ("Hybrid · local + cloud proposals", "hybrid"),
+                        ], value="local", id="provider")
+                        yield Static("Ready · choose a mode and enter a request", id="runtime-status", markup=False)
+                        yield Button("Clear", id="clear-transcript", tooltip="Clear the visible conversation")
                     yield RichLog(id="transcript", wrap=True, markup=False, auto_scroll=True)
                     with Horizontal(id="chat-controls"):
-                        yield Select([("Local Needle", "local"), ("Cloud plan + local Needle", "cloud"), ("Hybrid: Needle + Cloud tools", "hybrid")], value="local", id="provider")
-                        yield Input(placeholder="Ask naturally…  (press Enter to send)", id="prompt")
+                        yield Input(placeholder="Describe the task…  (Enter to send)", id="prompt")
                         yield Button("Send", variant="primary", id="send")
             with TabPane("Cloud setup", id="cloud-tab"):
                 with VerticalScroll(id="setup-layout"):
@@ -192,8 +220,18 @@ class NeedleTUI(App[None]):
                     yield Static("Model discovery has not run yet.", id="cloud-status")
         yield Footer()
 
+    def _set_runtime_status(self, message: str) -> None:
+        try:
+            self.query_one("#runtime-status", Static).update(Text(message))
+        except Exception:
+            # Status updates must never interrupt a running operation.
+            pass
+
     def on_mount(self) -> None:
-        self.query_one("#transcript", RichLog).write("[bold cyan]Needle Agent[/bold cyan] — choose Local Needle, Cloud plan + local Needle, or Hybrid. Hybrid combines local Needle and cloud proposals in a bounded loop; every action is host-validated and approved, and file writes/reads receive local postcondition checks.")
+        log = self.query_one("#transcript", RichLog)
+        _write_log(log, "Needle Agent", "Local-first workspace assistant. Every proposed action is validated; writes require approval.", "bold cyan")
+        _write_log(log, "Workspace", str(self.workspace.root), "dim")
+        self._set_runtime_status(f"Ready · workspace: {self.workspace.root.name}")
         self.query_one("#base-url", Input).value = self.cloud_values["base_url"]
         if self.cloud_values["api_key"]:
             self.query_one("#api-key", Input).value = self.cloud_values["api_key"]
