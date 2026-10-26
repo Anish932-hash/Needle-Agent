@@ -11,6 +11,7 @@ from .sandbox import practice_request, verify_tools
 from .conversation import ConversationMemory
 from .context import AutomaticContextManager
 from .capabilities import CapabilityStore
+from .request_guard import ground_explicit_write
 from .subagents import ConsensusAgent
 
 
@@ -255,6 +256,9 @@ def main():
                     if not isinstance(call, dict):
                         raise ValueError("Tool call must be an object")
                     name, arguments = validate_call(call.get("name"), call.get("arguments", {}))
+                    arguments, corrected = ground_explicit_write(prompt, name, arguments)
+                    if corrected:
+                        print("Request guard: corrected filename/content to match the current request exactly.")
                 except ValueError as exc:
                     print(f"Rejected malformed or unsupported model proposal: {exc}")
                     turn_outcomes.append("malformed proposal rejected")
