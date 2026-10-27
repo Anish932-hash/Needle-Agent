@@ -43,7 +43,7 @@ class Agent911ToolContractTests(unittest.TestCase):
         self.assertEqual(name, "run_shell")
         self.assertEqual(args["timeout_seconds"], 10)
         with tempfile.TemporaryDirectory() as temp:
-            with self.assertRaisesRegex(ValueError, "Guardian execution context"):
+            with self.assertRaisesRegex(ValueError, "Guardian after explicit approval"):
                 dispatch_action(Workspace(Path(temp) / "workspace"), "run_shell", args)
         with self.assertRaisesRegex(ValueError, "Unexpected argument"):
             validate_action("system_info", {"extra": "field"})
