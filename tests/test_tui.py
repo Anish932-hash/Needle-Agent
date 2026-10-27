@@ -128,22 +128,20 @@ class TUITests(unittest.TestCase):
                         app.query_one("#prompt").value = "Write Hello in the Text.txt"
                         task = asyncio.create_task(app.submit_prompt())
 
-                        async def wait_for_approval_modal():
-                            # Native/model and async event scheduling can vary across
-                            # Python versions. Wait for the actual modal instead of
-                            # assuming a fixed delay is always enough.
+                        async def wait_for_approval_button():
+                            # Find the button on the active modal screen, not a stale
+                            # widget from a previous dismissed approval dialog.
                             for _ in range(30):
                                 try:
-                                    app.query_one("#approve")
-                                    return
+                                    return app.screen.query_one("#approve")
                                 except NoMatches:
                                     await pilot.pause(0.1)
                             self.fail("Approval dialog did not appear within 3 seconds.")
 
-                        await wait_for_approval_modal()
-                        await pilot.click("#approve")
-                        await wait_for_approval_modal()
-                        await pilot.click("#approve")
+                        first_approval = await wait_for_approval_button()
+                        await pilot.click(first_approval)
+                        second_approval = await wait_for_approval_button()
+                        await pilot.click(second_approval)
                         await task
 
                 file_path = app.workspace.root / "Text.txt"
