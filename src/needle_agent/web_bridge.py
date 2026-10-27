@@ -303,35 +303,51 @@ class WebBridge:
             raise ValueError("Describe the upgrade you want Agent 911 to gain.")
         if len(request_text) > UpgradePromptStore.MAX_REQUEST_CHARS:
             raise ValueError("Upgrade request is too long.")
-        plan = ""
-        generation_error = ""
+
+        # Needle 3 is a structured tool-proposal model, not a general long-form
+        # writer. Do not mislabel its short reasoning field as a real engineering
+        # plan. Only use the configured language model for that task.
+        base = self.cloud_values.get("base_url", "")
+        key = self.cloud_values.get("api_key", "")
+        model = self.cloud_values.get("model", "")
+        if not all(isinstance(value, str) and value.strip() for value in (base, key, model)):
+            item = self.upgrade_prompts.add(request_text, "")
+            return {
+                "item": item,
+                "items": self.upgrade_prompts.list(),
+                "message": (
+                    "Upgrade request saved as a draft. A long-form planning model is not configured, "
+                    "so Agent 911 did not invent a plan. Configure an OpenAI-compatible cloud provider "
+                    "to generate a detailed plan; no action was executed."
+                ),
+            }
+
         try:
-            agent = self._get_agent()
-            result = agent.complete(
-                "You are drafting a future upgrade plan for Agent 911. This is analysis only. "
-                "Do not call tools, edit source, write files, install packages, alter configuration, "
-                "or claim the upgrade has been applied. Treat the owner request as the goal. "
-                "Return a practical plan with: purpose, architecture changes, implementation steps, "
-                "failure cases, tests and acceptance criteria, and rollback considerations. "
-                "State assumptions and unresolved risks honestly.\n\nOwner's upgrade request:\n"
-                + request_text.strip()
-            )
-            if isinstance(result, dict):
-                candidate = result.get("assistant_message")
-                if not isinstance(candidate, str) or not candidate.strip():
-                    candidate = result.get("reasoning", "")
-                if isinstance(candidate, str):
-                    plan = candidate.strip()[:UpgradePromptStore.MAX_PLAN_CHARS]
-            # Any function calls returned by the model are intentionally ignored.
+            plan = CloudAgent(base, key, model).draft_upgrade_plan(request_text).strip()
             if not plan:
-                generation_error = "The model returned no text plan. The request was saved as a draft."
+                raise ValueError("The provider returned an empty plan.")
+            plan = plan[:UpgradePromptStore.MAX_PLAN_CHARS]
         except Exception as exc:
-            generation_error = f"Plan generation failed ({type(exc).__name__}: {exc}). The request was saved as a draft."
+            item = self.upgrade_prompts.add(request_text, "")
+            return {
+                "item": item,
+                "items": self.upgrade_prompts.list(),
+                "message": (
+                    f"Plan generation failed ({type(exc).__name__}: {exc}). "
+                    "The upgrade request was saved as a draft; no action was executed."
+                ),
+            }
+
         item = self.upgrade_prompts.add(request_text, plan)
-        message = "Upgrade request saved. This is a proposed plan only; no code or configuration was changed."
-        if generation_error:
-            message = generation_error + " No action was executed."
-        return {"item": item, "items": self.upgrade_prompts.list(), "message": message}
+        return {
+            "item": item,
+            "items": self.upgrade_prompts.list(),
+            "message": (
+                "Upgrade request saved with a cloud-generated draft plan. "
+                "The provider received the upgrade request. This is advisory only; "
+                "no code or configuration was changed."
+            ),
+        }
 
     def _chat(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self.active_turn is not None:
