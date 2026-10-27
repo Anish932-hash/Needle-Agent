@@ -90,6 +90,21 @@ class CloudAPITests(unittest.TestCase):
         self.assertEqual(review_input["local_actions"][0]["result"]["text"], "hello")
         self.assertNotIn("tools", self.server.last_payload)
 
+    def test_upgrade_plan_is_text_only_and_never_registers_tools(self):
+        agent = CloudAgent(self.base, "secret-test-key", "alpha")
+        request = "Add versioned model config and acceptance tests."
+
+        plan = agent.draft_upgrade_plan(request)
+
+        self.assertEqual(plan, "I can read that file.")
+        payload = self.server.last_payload
+        self.assertEqual(payload["model"], "alpha")
+        self.assertNotIn("tools", payload)
+        self.assertIn("Do not call tools", payload["messages"][0]["content"])
+        self.assertEqual(
+            json.loads(payload["messages"][1]["content"])["owner_upgrade_request"], request
+        )
+
     def test_user_config_directory_respects_platform_conventions_and_xdg(self):
         self.assertEqual(user_config_dir("linux", {"XDG_CONFIG_HOME": "/tmp/custom-config"}, Path("/home/test")),
                          Path("/tmp/custom-config/needle-agent"))
