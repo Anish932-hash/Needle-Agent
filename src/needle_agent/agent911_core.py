@@ -217,3 +217,82 @@ class Agent911Core:
         result = self.model.complete(prompt)
         # Preserve malformed responses for the bridge's explicit invalid-response path.
         return result
+
+
+
+def verify_agent911() -> dict[str, Any]:
+    """Run deterministic checks against Agent 911's own tool boundary in a deleted sandbox."""
+    import tempfile
+
+    checks: list[dict[str, Any]] = []
+
+    def check(name: str, action) -> None:
+        try:
+            detail = action()
+            checks.append({"name": name, "passed": True, "detail": str(detail)})
+        except Exception as exc:
+            checks.append({"name": name, "passed": False,
+                           "detail": f"{type(exc).__name__}: {exc}"})
+
+    with tempfile.TemporaryDirectory(prefix="agent911-verify-") as temp:
+        workspace = Workspace(Path(temp) / "workspace")
+
+        def write_read_round_trip() -> str:
+            dispatch_action(workspace, "write_file", {
+                "path": "checks/roundtrip.txt", "text": "Agent911VerificationSentinel",
+            })
+            result = dispatch_action(workspace, "read_file", {"path": "checks/roundtrip.txt"})
+            if result.get("text") != "Agent911VerificationSentinel":
+                raise AssertionError("read-back text did not match the expected literal")
+            return "Exact write/read round-trip passed."
+
+        def listing_sees_file() -> str:
+            result = dispatch_action(workspace, "list_files", {"path": "checks"})
+            names = {item.get("name") for item in result.get("entries", [])}
+            if "roundtrip.txt" not in names:
+                raise AssertionError("workspace listing did not include the seeded file")
+            return "Listing returned the expected workspace entry."
+
+        def bounded_search() -> str:
+            result = dispatch_action(workspace, "search_workspace", {
+                "query": "Agent911VerificationSentinel",
+            })
+            if not result.get("matches"):
+                raise AssertionError("search did not find the seeded sentinel")
+            return "Search found the seeded text inside workspace."
+
+        def path_traversal_blocked() -> str:
+            try:
+                dispatch_action(workspace, "read_file", {"path": "../outside.txt"})
+            except ValueError:
+                return "Parent traversal was rejected."
+            raise AssertionError("parent traversal was accepted")
+
+        def unsupported_tool_blocked() -> str:
+            try:
+                dispatch_action(workspace, "run_shell", {"command": "echo unsafe"})
+            except ValueError:
+                return "Unknown tool name was rejected."
+            raise AssertionError("an unsupported tool name was accepted")
+
+        def internal_state_blocked() -> str:
+            try:
+                dispatch_action(workspace, "read_file", {"path": ".needle-agent-memory.json"})
+            except ValueError:
+                return "Reserved internal state was inaccessible through ordinary file tools."
+            raise AssertionError("ordinary workspace tool accessed reserved agent state")
+
+        check("write_read_round_trip", write_read_round_trip)
+        check("workspace_listing", listing_sees_file)
+        check("bounded_workspace_search", bounded_search)
+        check("path_traversal", path_traversal_blocked)
+        check("tool_allowlist", unsupported_tool_blocked)
+        check("internal_state_boundary", internal_state_blocked)
+
+    return {
+        "passed": bool(checks) and all(item["passed"] for item in checks),
+        "checks": checks,
+        "workspace": "temporary; deleted after verification",
+        "model_inference_performed": False,
+        "tool_calls_executed": len(checks),
+    }
