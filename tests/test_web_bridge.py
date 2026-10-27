@@ -198,7 +198,7 @@ class WebBridgeTests(unittest.TestCase):
             })
 
         self.assertEqual(response["proposals"], [])
-        self.assertTrue(any("does not explicitly ask" in item["reason"] for item in response["rejected"]))
+        self.assertTrue(any("not execution consent" in item["reason"] for item in response["rejected"]))
         self.assertEqual(self.bridge.pending, {})
 
     def test_model_configuration_is_saved_and_invalidates_loaded_runtime(self):
