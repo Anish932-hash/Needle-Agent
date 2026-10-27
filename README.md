@@ -51,7 +51,7 @@ The workspace is created if needed. Use `/quit` to exit. Needle 3 supports a 2â€
 
 ## Agent 911 web console
 
-The **Agent 911** browser console is an alternative interface for operating the local agent. It adds a model-configuration screen, a deterministic verification suite, a real local-model Live Run Test, and a persistent queue for user-directed upgrade prompts. It keeps the existing workspace boundaries and per-action approvals.
+The **Agent 911** browser console has its own core tool contract and validation layer, using Cactus Needle 3 as the local inference runtime while reusing the workspace confinement and tested capability store. It adds Model Configuration, a deterministic Verification suite, a real local-model Live Run Test, and a persistent queue for user-directed Upgrade Prompts. It retains the same explicit per-action approvals and path restrictions.
 
 Requirements: Node.js 20+ and Python 3.10+. After installing the Python package as above, start the console from the repository root:
 
@@ -61,9 +61,9 @@ node web-ui/server.mjs --workspace ./needle-workspace
 
 Open the loopback address printed in the terminal (normally `http://127.0.0.1:8765`). No `npm install` is required. The server binds only to localhost.
 
-The **Verification** screen tests tool behavior in a temporary workspace. **Live Run Test** calls the configured local model, validates its response, and runs a fixed read-only system diagnostic; proposals from the diagnostic model call are not executed. These checks report different kinds of evidence and neither proves that every future model proposal will be correct.
+The **Verification** screen tests Agent 911's tool boundary in a disposable temporary workspace. **Live Run Test** calls the configured local Needle model, validates its response, and runs a fixed read-only system diagnostic; proposals from the model during this test are not executed. These checks report different kinds of evidence and neither proves that every future model proposal will be correct.
 
-The **Upgrade prompts** screen lets the user request and save a plan for a future improvement. It does not apply source-code changes, install software, or expand permissions. See [web-ui/README.md](web-ui/README.md) for configuration, test commands, and troubleshooting.
+The **Upgrade Prompts** screen saves requests for future improvements. A configured OpenAI-compatible cloud model can draft a detailed plan; when one is unavailable or fails, the request remains a draft and Agent 911 does not pretend the local tool-calling model generated a long-form plan. Cloud planning sends the upgrade request to the configured provider. Submitting an upgrade prompt never modifies source code, installs software, or expands permissions. See [web-ui/README.md](web-ui/README.md) for setup and safety details.
 
 ## Safety behavior
 
