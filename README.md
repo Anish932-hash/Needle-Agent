@@ -2,7 +2,7 @@
 
 A compact local OS-assistant starter built around **Cactus Needle 3**. It asks Needle to map natural-language requests to structured tool calls, then applies a deliberately small, auditable policy before any action is run.
 
-> This is a lightweight extensible agent, not unrestricted computer control. Its initial tools inspect basic system information, list/search/read files, and write text files inside a dedicated workspace. It does not run shell commands, access arbitrary paths, or interact with the network. Add OS integrations narrowly and review their permissions before enabling them.
+> The original CLI is a lightweight extensible agent, not unrestricted computer control. Its initial tools inspect basic system information, list/search/read files, and write text files inside a dedicated workspace. It does not run shell commands or access arbitrary paths. The separate Agent 911 web console includes an optional, Guardian-gated shell/Python toolset that runs only inside a fail-closed bubblewrap sandbox on supported Linux hosts.
 
 ## Install and run
 
@@ -51,7 +51,7 @@ The workspace is created if needed. Use `/quit` to exit. Needle 3 supports a 2â€
 
 ## Agent 911 web console
 
-The **Agent 911** browser console has its own core tool contract and validation layer, using Cactus Needle 3 as the local inference runtime while reusing the workspace confinement and tested capability store. It adds Model Configuration, a deterministic Verification suite, a real local-model Live Run Test, and a persistent queue for user-directed Upgrade Prompts. It retains the same explicit per-action approvals and path restrictions.
+The **Agent 911** browser console has its own core tool contract and validation layer, using Cactus Needle 3 as the local inference runtime while reusing the workspace confinement and tested capability store. It adds Model Configuration, deterministic Verification, a real local-model Live Run Test, persistent Upgrade Prompts, and an advanced Guardian policy/audit layer. Guardian-gated shell and arbitrary Python code execution are available only in local mode, only after explicit approval, and only inside a bubblewrap sandbox on Linux when the app is not running as root. If sandbox requirements are not met, execution is denied; there is no direct-host fallback.
 
 Requirements: Node.js 20+ and Python 3.10+. After installing the Python package as above, start the console from the repository root:
 
@@ -71,7 +71,7 @@ The **Upgrade Prompts** screen saves requests for future improvements. A configu
 - Calls below confidence `0.80` require confirmation. Empty/refused calls are not treated as permission to act.
 - **Every write requires explicit confirmation**, regardless of confidence.
 - File paths are resolved and checked against the workspace; path inputs are limited to 4,096 characters, and reads and writes are capped at 64 KiB. Directory listings are capped at 200 entries, and text search at 500 files / 4 MiB per query (50 results max). Search skips symlinks and the agent's own memory files. The three internal state files (`.needle-agent-memory.json`, `.needle-agent-conversation.json`, and `.needle-agent-capabilities.json`) are reserved and cannot be accessed through ordinary workspace file tools. On POSIX systems that support descriptor-relative no-follow I/O, read_file opens targets relative to a pinned workspace directory and write_file uses a temporary file plus atomic rename to prevent parent/final symlink swaps from redirecting those operations. Other platforms use canonical path confinement and atomic replacement but do not receive the same guarantee against a concurrent local filesystem attacker.
-- Needle output is a proposal, never executable code. Only locally implemented, schema-validated tools can be dispatched; saved workflows can compose only the five workspace tools.
+- Needle output is a proposal, never executed during inference. All proposals pass local schema/policy validation and explicit per-action approval. Saved workflows can compose only predefined recipes. The web console's shell/Python actions are a separate, high-risk capability managed by Guardian: local mode only, mandatory approval, deterministic preflight checks, dispatch-time revalidation, bounded timeout/resources/output, no network namespace, read-only runtime, and writable selected workspace only. They fail closed when Linux bubblewrap is missing or Agent 911 runs as root.
 
 Confidence is not a security guarantee. Review every proposed action and do not use this starter for safety-critical tasks. The confidence threshold is configurable in `src/needle_agent/agent.py`.
 
