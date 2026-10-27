@@ -11,8 +11,9 @@ after(async () => {
 });
 
 test("serves the UI locally, protects its API, and validates requests", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "needle-web-ui-test-"));
-  const app = createWebServer({ workspace });
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agent911-web-ui-workspace-"));
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "agent911-web-ui-config-"));
+  const app = createWebServer({ workspace, configDir });
   runningApps.push(app);
   await new Promise((resolve, reject) => {
     app.server.once("error", reject);
@@ -54,8 +55,33 @@ test("serves the UI locally, protects its API, and validates requests", async ()
     });
     assert.equal(statusResponse.status, 200);
     const status = await statusResponse.json();
+    assert.equal(status.product, "Agent 911");
     assert.equal(status.workspace, workspace);
     assert.equal(status.pending_actions, 0);
+
+    const modelConfigResponse = await fetch(base + "/api/model-configuration", {
+      headers: { "X-Needle-Token": token },
+    });
+    assert.equal(modelConfigResponse.status, 200);
+    const modelConfig = await modelConfigResponse.json();
+    assert.equal(modelConfig.model_configuration.default_mode, "local");
+    assert.equal(modelConfig.model_configuration.runtime_initialized, false);
+
+    const upgradesResponse = await fetch(base + "/api/upgrades", {
+      headers: { "X-Needle-Token": token },
+    });
+    assert.equal(upgradesResponse.status, 200);
+    assert.deepEqual((await upgradesResponse.json()).items, []);
+
+    const verificationResponse = await fetch(base + "/api/verify", {
+      method: "POST",
+      headers: { "X-Needle-Token": token, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    assert.equal(verificationResponse.status, 200);
+    const verification = await verificationResponse.json();
+    assert.equal(verification.report.passed, true);
+    assert.ok(verification.report.checks.length >= 5);
 
     const invalidChat = await fetch(base + "/api/chat", {
       method: "POST",
@@ -77,5 +103,6 @@ test("serves the UI locally, protects its API, and validates requests", async ()
   } finally {
     await app.close();
     await rm(workspace, { recursive: true, force: true });
+    await rm(configDir, { recursive: true, force: true });
   }
 });

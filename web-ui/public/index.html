@@ -5,55 +5,61 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <meta name="needle-boot-token" content="__NEEDLE_BOOT_TOKEN__">
-  <title>Needle Agent — Web Console</title>
+  <title>Agent 911 — Control Console</title>
   <link rel="stylesheet" href="/styles.css">
   <script defer src="/app.js"></script>
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <a class="brand" href="/" aria-label="Needle Agent home">
+      <a class="brand" href="/" aria-label="Agent 911 home">
         <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
-        <span class="brand-copy"><strong>NEEDLE</strong><small>AGENT CONSOLE</small></span>
+        <span class="brand-copy"><strong>AGENT 911</strong><small>CONTROL CONSOLE</small></span>
       </a>
 
-      <div class="sidebar-label">WORKSPACE</div>
+      <div class="sidebar-label">CONTROL PLANE</div>
       <nav class="nav-stack" aria-label="Main navigation">
         <button class="nav-item active" id="nav-chat" data-view="chat-view" type="button">
           <span class="nav-glyph" aria-hidden="true">⌘</span><span>Chat</span><span class="nav-tail">01</span>
         </button>
-        <button class="nav-item" id="nav-settings" data-view="settings-view" type="button">
-          <span class="nav-glyph" aria-hidden="true">⚙</span><span>Cloud setup</span><span class="nav-tail">02</span>
+        <button class="nav-item" id="nav-models" data-view="models-view" type="button">
+          <span class="nav-glyph" aria-hidden="true">◈</span><span>Models</span><span class="nav-tail">02</span>
+        </button>
+        <button class="nav-item" id="nav-verification" data-view="verification-view" type="button">
+          <span class="nav-glyph" aria-hidden="true">✓</span><span>Verification</span><span class="nav-tail">03</span>
+        </button>
+        <button class="nav-item" id="nav-upgrades" data-view="upgrades-view" type="button">
+          <span class="nav-glyph" aria-hidden="true">↗</span><span>Upgrade prompts</span><span class="nav-tail">04</span>
         </button>
       </nav>
 
       <div class="sidebar-spacer"></div>
       <div class="workspace-card">
-        <div class="workspace-card-top"><span class="status-dot"></span><span>LOCAL WORKSPACE</span></div>
+        <div class="workspace-card-top"><span class="status-dot"></span><span>ACTIVE WORKSPACE</span></div>
         <div class="workspace-name" id="workspace-name">Connecting…</div>
-        <p>Actions stay local unless you approve them. No shell or arbitrary-code tool is exposed.</p>
+        <p>Tool calls are proposals. Workspace paths are checked again before execution.</p>
       </div>
-      <div class="sidebar-footer"><span class="tiny-mark"></span> NEEDLE AGENT <span class="version-tag">WEB</span></div>
+      <div class="sidebar-footer"><span class="tiny-mark"></span> AGENT 911 <span class="version-tag">LOCAL</span></div>
     </aside>
 
     <main class="main-area">
       <header class="topbar">
-        <div class="breadcrumbs"><span>NEEDLE AGENT</span><span class="crumb-sep">/</span><strong id="breadcrumb-current">CHAT</strong></div>
+        <div class="breadcrumbs"><span>AGENT 911</span><span class="crumb-sep">/</span><strong id="breadcrumb-current">CHAT</strong></div>
         <div class="topbar-right"><span class="status-dot" id="connection-dot"></span><span id="connection-label">Checking local runtime</span></div>
       </header>
 
       <section class="view active-view" id="chat-view">
         <div class="view-heading">
           <div>
-            <div class="eyebrow">LOCAL-FIRST ASSISTANT <span class="eyebrow-line"></span></div>
-            <h1>Action console<span class="title-period">.</span></h1>
+            <div class="eyebrow">AGENT INTERACTION <span class="eyebrow-line"></span></div>
+            <h1>Control console<span class="title-period">.</span></h1>
             <p class="view-subtitle">Describe a task. Inspect every proposal. Approve each local action yourself.</p>
           </div>
           <label class="mode-control">
             <span>EXECUTION MODE</span>
             <select id="mode-select">
-              <option value="local">Local Needle</option>
-              <option value="cloud">Cloud plan + local actions</option>
+              <option value="local">Local model + local tools</option>
+              <option value="cloud">Cloud planning + local tools</option>
               <option value="hybrid">Hybrid proposals</option>
             </select>
           </label>
@@ -67,78 +73,149 @@
           <div class="messages" id="messages" aria-live="polite" aria-relevant="additions text">
             <div class="welcome-card" id="welcome-card">
               <div class="welcome-mark"><span></span><span></span><span></span></div>
-              <div class="welcome-kicker">NEEDLE / READY WHEN YOU ARE</div>
-              <h2>A task starts with a request.<br><span>Execution starts with your approval.</span></h2>
-              <p>Needle can inspect and work inside its selected workspace. Proposed tool calls are validated before they are shown here. Nothing runs automatically.</p>
-              <div class="welcome-chips"><span>Workspace-confined</span><span>Explicit approval</span><span>Evidence-aware results</span></div>
+              <div class="welcome-kicker">AGENT 911 / SYSTEM READY</div>
+              <h2>Intelligence proposes.<br><span>Evidence and your approval decide.</span></h2>
+              <p>Agent 911 uses a local runtime, bounded tools, persistent context, and post-action checks. Model output is never executed directly.</p>
+              <div class="welcome-chips"><span>Bounded tools</span><span>Explicit approval</span><span>Verifiable outcomes</span></div>
             </div>
           </div>
           <div class="busy-row" id="busy-row" hidden><span class="loader"></span><span id="busy-label">Working…</span></div>
           <form id="composer-form" class="composer">
             <label class="visually-hidden" for="prompt-input">Describe the task</label>
-            <textarea id="prompt-input" rows="1" maxlength="10000" placeholder="Describe a task for Needle…" autocomplete="off" required></textarea>
+            <textarea id="prompt-input" rows="1" maxlength="10000" placeholder="Give Agent 911 a task…" autocomplete="off" required></textarea>
             <button class="send-button" id="send-button" type="submit"><span>Send request</span><span aria-hidden="true">↗</span></button>
           </form>
           <div class="composer-foot">
-            <span><span class="mini-lock"></span> All proposed actions require approval</span>
+            <span><span class="mini-lock"></span> Every proposed action requires your approval</span>
             <span><kbd>Enter</kbd> to send <span class="foot-divider">·</span> <kbd>Shift + Enter</kbd> for a new line</span>
           </div>
         </div>
-        <div class="bottom-notice"><span class="notice-icon">i</span><span><strong>Important:</strong> Cloud mode can send your prompt and approved action results to the configured provider for planning or review.</span></div>
+        <div class="bottom-notice"><span class="notice-icon">i</span><span><strong>Cloud notice:</strong> Cloud modes may send your request and approved action outcomes to the configured provider for planning or review.</span></div>
       </section>
 
-      <section class="view" id="settings-view">
+      <section class="view" id="models-view">
         <div class="view-heading settings-heading">
           <div>
-            <div class="eyebrow">OPTIONAL PROVIDER CONNECTION <span class="eyebrow-line"></span></div>
-            <h1>Cloud setup<span class="title-period">.</span></h1>
-            <p class="view-subtitle">Configure an OpenAI-compatible endpoint. Local Needle remains responsible for tool validation and execution.</p>
+            <div class="eyebrow">RUNTIME CONTROL <span class="eyebrow-line"></span></div>
+            <h1>Model configuration<span class="title-period">.</span></h1>
+            <p class="view-subtitle">Choose the local model assets and default execution mode. Configure a compatible cloud provider separately if needed.</p>
           </div>
-          <div class="security-badge"><span class="mini-lock"></span> LOOPBACK UI · NO THIRD-PARTY SCRIPTS</div>
+          <div class="security-badge"><span class="mini-lock"></span> SECRETS STAY OUT OF FRONTEND CODE</div>
         </div>
 
         <div class="settings-grid">
           <div class="settings-panel">
-            <div class="panel-topline"><span class="section-index">01</span><h2>Provider connection</h2></div>
-            <p class="panel-description">Remote endpoints must use HTTPS. Plain HTTP is permitted only for a localhost endpoint.</p>
+            <div class="panel-topline"><span class="section-index">01</span><h2>Local runtime</h2></div>
+            <p class="panel-description">Agent 911 currently uses the Cactus Needle 3 runtime for local reasoning. Leave paths blank to use the runtime's normal asset discovery.</p>
+            <form id="model-config-form">
+              <label for="default-mode-setting">Default execution mode</label>
+              <select id="default-mode-setting">
+                <option value="local">Local model + local tools</option>
+                <option value="cloud">Cloud planning + local tools</option>
+                <option value="hybrid">Hybrid proposals</option>
+              </select>
+              <label for="local-weights-path">Local model weights path <span class="label-optional">OPTIONAL</span></label>
+              <input id="local-weights-path" type="text" placeholder="/path/to/needle3.cact" autocomplete="off" spellcheck="false">
+              <div class="field-note">The file must already exist. The UI does not download arbitrary model files.</div>
+              <label for="local-engine-path">Native engine library path <span class="label-optional">OPTIONAL</span></label>
+              <input id="local-engine-path" type="text" placeholder="/path/to/libneedle3.so" autocomplete="off" spellcheck="false">
+              <div class="field-note">When set, a weights file is required too. Native libraries execute inside the local Python process; only select files you trust.</div>
+              <button class="primary-button full-width" id="save-model-config" type="submit">Save model configuration <span aria-hidden="true">→</span></button>
+            </form>
+            <div class="status-box" id="model-config-status" role="status">Model configuration has not been loaded.</div>
+            <div class="runtime-details" id="runtime-details">
+              <div class="runtime-detail"><span>Runtime</span><strong>Cactus Needle 3</strong></div>
+              <div class="runtime-detail"><span>Loaded this session</span><strong id="runtime-loaded">Not initialized</strong></div>
+            </div>
+          </div>
+
+          <div class="settings-panel">
+            <div class="panel-topline"><span class="section-index">02</span><h2>Cloud provider</h2></div>
+            <p class="panel-description">An optional OpenAI-compatible endpoint can plan tasks, propose bounded tool calls, and review recorded outcomes. It never executes local tools.</p>
             <form id="settings-form">
               <label for="base-url">API base URL</label>
               <input id="base-url" type="url" placeholder="https://api.openai.com/v1" autocomplete="url" required>
-              <div class="field-note">Needle uses <code>/models</code> and <code>/chat/completions</code>.</div>
+              <div class="field-note">Agent 911 uses <code>/models</code> and <code>/chat/completions</code>. Remote endpoints require HTTPS.</div>
 
-              <label for="api-key">API key <span class="label-optional">OPTIONAL IF ALREADY CONFIGURED</span></label>
+              <label for="api-key">API key <span class="label-optional">OPTIONAL IF CONFIGURED</span></label>
               <input id="api-key" type="password" placeholder="Paste key to validate" autocomplete="new-password">
               <div class="field-note" id="key-hint">The key is kept in memory by default and is not shown again.</div>
 
               <button class="secondary-button full-width" id="detect-models" type="button"><span class="button-spark"></span> Validate endpoint &amp; detect models</button>
 
-              <label for="model-select">Available model</label>
+              <label for="model-select">Available cloud model</label>
               <select id="model-select" required>
                 <option value="">Validate the endpoint to load models</option>
               </select>
 
               <label class="checkbox-row" for="remember-key">
                 <input id="remember-key" type="checkbox">
-                <span><strong>Remember API key on this device</strong><small>Stores the key in Needle's local config file with restrictive permissions.</small></span>
+                <span><strong>Remember API key on this device</strong><small>Stores the key in the local user configuration directory with restrictive permissions.</small></span>
               </label>
-              <button class="primary-button full-width" id="save-settings" type="submit">Save cloud settings <span aria-hidden="true">→</span></button>
+              <button class="primary-button full-width" id="save-settings" type="submit">Save provider settings <span aria-hidden="true">→</span></button>
             </form>
-            <div class="status-box" id="settings-status" role="status">No connection check has run in this session.</div>
-          </div>
-
-          <div class="security-panel">
-            <div class="security-visual"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="core-symbol"><span></span><span></span><span></span></div></div>
-            <div class="eyebrow">TRUST BOUNDARY</div>
-            <h2>Cloud can advise.<br><span>Local code decides.</span></h2>
-            <div class="trust-row"><span class="trust-number">01</span><div><strong>Structured proposals only</strong><p>Cloud responses are suggestions, not executable instructions.</p></div></div>
-            <div class="trust-row"><span class="trust-number">02</span><div><strong>Local validation</strong><p>Tool names, arguments, paths, and workspace boundaries are checked locally.</p></div></div>
-            <div class="trust-row"><span class="trust-number">03</span><div><strong>Human approval</strong><p>Every action is shown with its arguments. File writes are never automatic.</p></div></div>
-            <div class="security-footnote"><span class="mini-lock"></span> Your API key is never embedded in frontend JavaScript.</div>
+            <div class="status-box" id="settings-status" role="status">No cloud connection check has run in this session.</div>
           </div>
         </div>
       </section>
 
-      <footer class="main-footer"><span>NEEDLE AGENT</span><span>Local control. Clear evidence. Explicit approval.</span></footer>
+      <section class="view" id="verification-view">
+        <div class="view-heading">
+          <div>
+            <div class="eyebrow">EVIDENCE, NOT ASSUMPTIONS <span class="eyebrow-line"></span></div>
+            <h1>Verification lab<span class="title-period">.</span></h1>
+            <p class="view-subtitle">Run isolated safety checks or test the actual configured model runtime. These are separate tests with different guarantees.</p>
+          </div>
+        </div>
+        <div class="verification-grid">
+          <article class="verification-card">
+            <div class="panel-topline"><span class="section-index">A</span><h2>Deterministic verification</h2></div>
+            <p class="panel-description">Exercises workspace read/write/list/search, path traversal blocking, and the tool allowlist in a temporary workspace that is deleted afterward. It does not load a model.</p>
+            <button class="primary-button full-width" id="run-verification" type="button">Run verification suite <span aria-hidden="true">→</span></button>
+            <div class="status-box" id="verification-status" role="status">No verification run has been recorded in this session.</div>
+          </article>
+          <article class="verification-card">
+            <div class="panel-topline"><span class="section-index">B</span><h2>Live run test</h2></div>
+            <p class="panel-description">Initializes and calls the actual local model. It validates the response shape and runs a fixed read-only system diagnostic. Model-proposed actions are never dispatched.</p>
+            <button class="secondary-button full-width" id="run-live-test" type="button">Run live model test <span aria-hidden="true">↗</span></button>
+            <div class="status-box" id="live-test-status" role="status">A live run test has not been started.</div>
+          </article>
+        </div>
+        <section class="report-panel">
+          <div class="chat-panel-bar"><div class="panel-title"><span class="panel-led"></span><span>VERIFICATION REPORT</span></div><span class="report-meta" id="report-meta">Awaiting a test run</span></div>
+          <div id="verification-report" class="report-content"><div class="report-empty">Test evidence will appear here after you run a verification.</div></div>
+        </section>
+      </section>
+
+      <section class="view" id="upgrades-view">
+        <div class="view-heading">
+          <div>
+            <div class="eyebrow">USER-DIRECTED EVOLUTION <span class="eyebrow-line"></span></div>
+            <h1>Upgrade prompts<span class="title-period">.</span></h1>
+            <p class="view-subtitle">Describe a capability or improvement. Agent 911 can draft a plan and preserve it for review; it will not silently rewrite itself.</p>
+          </div>
+        </div>
+        <div class="upgrade-layout">
+          <div class="settings-panel">
+            <div class="panel-topline"><span class="section-index">01</span><h2>Draft an upgrade request</h2></div>
+            <p class="panel-description">When a cloud provider is configured, Agent 911 asks it to draft implementation steps, failure cases, acceptance tests, and rollback considerations. Without a configured cloud planner, the request is saved as a draft rather than pretending the local tool-calling model can write a long-form plan.</p>
+            <form id="upgrade-prompt-form">
+              <label for="upgrade-request">What should Agent 911 gain or improve?</label>
+              <textarea id="upgrade-request" rows="6" maxlength="10000" placeholder="Describe the intended capability, why it is needed, limits, and how success should be tested…" required></textarea>
+              <button class="primary-button full-width" id="draft-upgrade" type="submit">Draft plan &amp; save prompt <span aria-hidden="true">→</span></button>
+            </form>
+            <div class="status-box" id="upgrade-status" role="status">No upgrade request has been drafted.</div>
+            <div class="bottom-notice"><span class="notice-icon">i</span><span>Upgrade requests are saved under your local user configuration. When cloud planning is enabled, the request is sent to the configured provider for plan generation. Drafting does not apply source-code changes, install software, or expand permissions.</span></div>
+          </div>
+          <div class="upgrade-list-panel">
+            <div class="panel-topline"><span class="section-index">02</span><h2>Saved upgrade prompts</h2></div>
+            <p class="panel-description">Review drafted plans, then carry approved work into a separately reviewed development change.</p>
+            <div id="upgrade-list" class="upgrade-list"><div class="report-empty">Loading saved prompts…</div></div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="main-footer"><span>AGENT 911</span><span>Local control. Verifiable outcomes. User-directed upgrades.</span></footer>
     </main>
   </div>
   <div class="toast-region" id="toast-region" aria-live="assertive"></div>

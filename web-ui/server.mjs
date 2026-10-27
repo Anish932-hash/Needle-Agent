@@ -32,13 +32,14 @@ function getSafeErrorStatus(error) {
 }
 
 class PythonBridge {
-  constructor({ workspace, weights, engine, contextTokens = 1600, pythonExecutable }) {
+  constructor({ workspace, weights, engine, contextTokens = 1600, pythonExecutable, configDir }) {
     const executable = pythonExecutable || process.env.NEEDLE_PYTHON
       || (process.platform === "win32" ? "python" : "python3");
     const args = ["-u", "-m", "needle_agent.web_bridge", "--workspace", workspace,
       "--context-tokens", String(contextTokens)];
     if (weights) args.push("--weights", weights);
     if (engine) args.push("--engine", engine);
+    if (configDir) args.push("--config-dir", configDir);
 
     const inheritedPythonPath = process.env.PYTHONPATH || "";
     const pythonPath = [path.join(REPO_ROOT, "src"), inheritedPythonPath].filter(Boolean).join(path.delimiter);
@@ -190,12 +191,16 @@ function setSecurityHeaders(res) {
 
 export function createWebServer(options = {}) {
   const workspace = path.resolve(options.workspace || process.env.NEEDLE_WORKSPACE || "./needle-workspace");
-  const weights = options.weights ? path.resolve(options.weights) : (process.env.NEEDLE3_WEIGHTS || undefined);
-  const engine = options.engine ? path.resolve(options.engine) : (process.env.NEEDLE3_LIB_PATH || undefined);
+  // Pass only explicit CLI paths through as overrides. Otherwise Agent 911's
+  // saved Model Configuration takes precedence, with environment variables left
+  // available as fallback discovery settings inside the Python runtime.
+  const weights = options.weights ? path.resolve(options.weights) : undefined;
+  const engine = options.engine ? path.resolve(options.engine) : undefined;
   const contextTokens = Number.isInteger(options.contextTokens) ? options.contextTokens : 1600;
+  const configDir = options.configDir ? path.resolve(options.configDir) : undefined;
   const token = randomBytes(32).toString("hex");
   const bridge = new PythonBridge({
-    workspace, weights, engine, contextTokens,
+    workspace, weights, engine, contextTokens, configDir,
     pythonExecutable: options.pythonExecutable,
   });
 
@@ -228,11 +233,23 @@ export function createWebServer(options = {}) {
           sendJson(res, 200, await bridge.call("settings", {}));
           return;
         }
+        if (req.method === "GET" && url.pathname === "/api/model-configuration") {
+          sendJson(res, 200, await bridge.call("model_configuration", {}));
+          return;
+        }
+        if (req.method === "GET" && url.pathname === "/api/upgrades") {
+          sendJson(res, 200, await bridge.call("upgrades", {}));
+          return;
+        }
         if (req.method === "GET" && url.pathname === "/api/health") {
           sendJson(res, 200, await bridge.call("health", {}));
           return;
         }
-        if (req.method === "POST" && ["/api/chat", "/api/action", "/api/models", "/api/settings"].includes(url.pathname)) {
+        if (req.method === "POST" && [
+          "/api/chat", "/api/action", "/api/models", "/api/settings",
+          "/api/model-configuration", "/api/verify", "/api/live-test",
+          "/api/upgrade-prompts", "/api/upgrade-prompts/archive"
+        ].includes(url.pathname)) {
           const body = await readJsonBody(req);
           if (!body || typeof body !== "object" || Array.isArray(body)) {
             sendJson(res, 400, { error: "Request body must be a JSON object." });
@@ -249,8 +266,23 @@ export function createWebServer(options = {}) {
           } else if (url.pathname === "/api/models") {
             op = "detect_models";
             payload = body;
-          } else {
+          } else if (url.pathname === "/api/settings") {
             op = "save_settings";
+            payload = body;
+          } else if (url.pathname === "/api/model-configuration") {
+            op = "save_model_configuration";
+            payload = body;
+          } else if (url.pathname === "/api/verify") {
+            op = "verify";
+            payload = {};
+          } else if (url.pathname === "/api/live-test") {
+            op = "live_test";
+            payload = {};
+          } else if (url.pathname === "/api/upgrade-prompts") {
+            op = "draft_upgrade";
+            payload = body;
+          } else if (url.pathname === "/api/upgrade-prompts/archive") {
+            op = "archive_upgrade";
             payload = body;
           }
           sendJson(res, 200, await bridge.call(op, payload));
@@ -322,6 +354,7 @@ function parseArgs(argv) {
     else if (arg === "--port" && argv[i + 1]) options.port = Number(argv[++i]);
     else if (arg === "--python" && argv[i + 1]) options.pythonExecutable = argv[++i];
     else if (arg === "--context-tokens" && argv[i + 1]) options.contextTokens = Number(argv[++i]);
+    else if (arg === "--config-dir" && argv[i + 1]) options.configDir = argv[++i];
     else if (arg === "--help" || arg === "-h") options.help = true;
     else throw new Error("Unknown argument: " + arg);
   }
@@ -338,7 +371,7 @@ async function main() {
     return;
   }
   if (options.help) {
-    console.log("Needle Agent Web UI\nUsage: node web-ui/server.mjs [--workspace PATH] [--weights FILE] [--engine FILE] [--port PORT] [--python EXECUTABLE] [--context-tokens N]");
+    console.log("Agent 911 Web UI\nUsage: node web-ui/server.mjs [--workspace PATH] [--weights FILE] [--engine FILE] [--config-dir PATH] [--port PORT] [--python EXECUTABLE] [--context-tokens N]");
     return;
   }
   const port = options.port ?? Number(process.env.PORT || 8765);

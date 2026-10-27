@@ -5,6 +5,11 @@ import unittest
 from unittest.mock import patch
 
 try:
+    from textual.css.query import NoMatches
+except ImportError:
+    NoMatches = LookupError
+
+try:
     from rich.text import Text
     from needle_agent.tui import NeedleTUI, _write_log
     TEXTUAL_AVAILABLE = True
@@ -114,7 +119,7 @@ class TUITests(unittest.TestCase):
                 cloud, local = FakeCloud(), FakeLocal()
                 app.local_agent = local
                 with patch("needle_agent.tui.CloudAgent", return_value=cloud):
-                    async with app.run_test() as pilot:
+                    async with app.run_test(size=(120, 50)) as pilot:
                         app.query_one("#provider").value = "hybrid"
                         app.query_one("#base-url").value = "https://api.example.com/v1"
                         app.query_one("#api-key").value = "test-key"
@@ -122,10 +127,21 @@ class TUITests(unittest.TestCase):
                         app.query_one("#model-select").value = "model-a"
                         app.query_one("#prompt").value = "Write Hello in the Text.txt"
                         task = asyncio.create_task(app.submit_prompt())
-                        await pilot.pause(0.3)
-                        await pilot.click("#approve")
-                        await pilot.pause(0.4)
-                        await pilot.click("#approve")
+
+                        async def wait_for_approval_button():
+                            # Find the button on the active modal screen, not a stale
+                            # widget from a previous dismissed approval dialog.
+                            for _ in range(30):
+                                try:
+                                    return app.screen.query_one("#approve")
+                                except NoMatches:
+                                    await pilot.pause(0.1)
+                            self.fail("Approval dialog did not appear within 3 seconds.")
+
+                        first_approval = await wait_for_approval_button()
+                        await pilot.click(first_approval)
+                        second_approval = await wait_for_approval_button()
+                        await pilot.click(second_approval)
                         await task
 
                 file_path = app.workspace.root / "Text.txt"
@@ -249,6 +265,9 @@ class TUITests(unittest.TestCase):
                         await pilot.pause(0.1)
                         app.query_one("#model-select").set_options([("model-a", "model-a")])
                         app.query_one("#model-select").value = "model-a"
+                        # Let Select.Changed settle before the click so this test
+                        # measures the save handler, not event-loop scheduling.
+                        await pilot.pause(0.2)
                         await pilot.click("#save-cloud")
                         await pilot.pause(0.2)
                         status = app.query_one("#cloud-status").render()
