@@ -30,7 +30,7 @@ class GuardianAssessmentTests(unittest.TestCase):
     def test_execution_requires_user_request_and_is_high_risk(self):
         denied = self.assess_shell("echo hello", request="Explain what shell commands do.")
         self.assertFalse(denied["allowed"])
-        self.assertIn("does not explicitly ask", " ".join(denied["findings"]))
+        self.assertIn("not execution consent", " ".join(denied["findings"]))
 
         allowed = self.assess_shell("echo hello")
         self.assertTrue(allowed["allowed"], allowed)
