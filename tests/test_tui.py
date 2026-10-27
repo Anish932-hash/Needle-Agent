@@ -119,7 +119,7 @@ class TUITests(unittest.TestCase):
                 cloud, local = FakeCloud(), FakeLocal()
                 app.local_agent = local
                 with patch("needle_agent.tui.CloudAgent", return_value=cloud):
-                    async with app.run_test() as pilot:
+                    async with app.run_test(size=(120, 50)) as pilot:
                         app.query_one("#provider").value = "hybrid"
                         app.query_one("#base-url").value = "https://api.example.com/v1"
                         app.query_one("#api-key").value = "test-key"
