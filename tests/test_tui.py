@@ -249,6 +249,9 @@ class TUITests(unittest.TestCase):
                         await pilot.pause(0.1)
                         app.query_one("#model-select").set_options([("model-a", "model-a")])
                         app.query_one("#model-select").value = "model-a"
+                        # Let Select.Changed settle before the click so this test
+                        # measures the save handler, not event-loop scheduling.
+                        await pilot.pause(0.2)
                         await pilot.click("#save-cloud")
                         await pilot.pause(0.2)
                         status = app.query_one("#cloud-status").render()
