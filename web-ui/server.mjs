@@ -191,8 +191,11 @@ function setSecurityHeaders(res) {
 
 export function createWebServer(options = {}) {
   const workspace = path.resolve(options.workspace || process.env.NEEDLE_WORKSPACE || "./needle-workspace");
-  const weights = options.weights ? path.resolve(options.weights) : (process.env.NEEDLE3_WEIGHTS || undefined);
-  const engine = options.engine ? path.resolve(options.engine) : (process.env.NEEDLE3_LIB_PATH || undefined);
+  // Pass only explicit CLI paths through as overrides. Otherwise Agent 911's
+  // saved Model Configuration takes precedence, with environment variables left
+  // available as fallback discovery settings inside the Python runtime.
+  const weights = options.weights ? path.resolve(options.weights) : undefined;
+  const engine = options.engine ? path.resolve(options.engine) : undefined;
   const contextTokens = Number.isInteger(options.contextTokens) ? options.contextTokens : 1600;
   const configDir = options.configDir ? path.resolve(options.configDir) : undefined;
   const token = randomBytes(32).toString("hex");
