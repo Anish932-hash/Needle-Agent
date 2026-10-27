@@ -31,7 +31,19 @@ _PRIVATE_STORES = (
 )
 
 _EXPLICIT_EXECUTION = re.compile(
-    r"\b(run|execute|launch|start|compile|build|test|install)\b",
+    r"\b(?:please\s+)?(?:run|execute|launch|start|compile|build|test|install)\s+"
+    r"(?:this|the|my|following|provided|selected|current|script|command|code|program|"
+    r"test|tests|project|file|package|[\\"'\x60]|[A-Za-z0-9_.-]+)\b?",
+    re.IGNORECASE,
+)
+_NEGATED_EXECUTION = re.compile(
+    r"\b(?:do\s+not|don't|never|avoid|without|not)\s+"
+    r"(?:actually\s+)?(?:run|execute|launch|start|compile|build|test|install)\b",
+    re.IGNORECASE,
+)
+_EXPLANATORY_EXECUTION = re.compile(
+    r"\b(?:explain|describe|teach\s+me|how\s+to|how\s+do\s+i|what\s+happens\s+when|"
+    r"what\s+does)\b",
     re.IGNORECASE,
 )
 _BLOCKED_SHELL = (
@@ -90,9 +102,12 @@ class Guardian:
             if mode != "local":
                 blocked = True
                 findings.append("Shell/code execution is disabled in cloud and hybrid modes so results cannot be shared with a provider.")
-            if not isinstance(user_request, str) or not _EXPLICIT_EXECUTION.search(user_request):
+            explicit_request = isinstance(user_request, str) and bool(_EXPLICIT_EXECUTION.search(user_request))
+            negated_request = isinstance(user_request, str) and bool(_NEGATED_EXECUTION.search(user_request))
+            educational_request = isinstance(user_request, str) and bool(_EXPLANATORY_EXECUTION.search(user_request))
+            if not explicit_request or negated_request or educational_request:
                 blocked = True
-                findings.append("The current user request does not explicitly ask to run or execute code.")
+                findings.append("The current user request must directly instruct Agent 911 to run/execute a target; explanations, questions, and negated instructions are not execution consent.")
             if not self.sandbox_available():
                 blocked = True
                 findings.append("Fail-closed: Linux bubblewrap (bwrap) is required; no unsandboxed fallback is permitted.")
