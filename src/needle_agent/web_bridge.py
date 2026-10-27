@@ -16,14 +16,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .agent import build_agent, dispatch, validate_call
+from .agent911_core import Agent911Core, dispatch_action, validate_action, verify_agent911
 from .agent911_config import ModelConfiguration, UpgradePromptStore, agent911_config_dir
 from .cloud import CloudAgent, CloudSettings, detect_models
 from .context import AutomaticContextManager
 from .conversation import ConversationMemory
 from .evolution import EvolutionMemory
 from .request_guard import ground_explicit_write
-from .sandbox import verify_tools
 from .tools import Workspace
 
 
@@ -131,7 +130,7 @@ class WebBridge:
 
     def _get_agent(self):
         if self.agent is None:
-            self.agent = build_agent(self.workspace, weights=self.weights, engine_path=self.engine)
+            self.agent = Agent911Core(self.workspace, weights=self.weights, engine_path=self.engine)
         return self.agent
 
     def _public_settings(self) -> dict[str, Any]:
@@ -205,7 +204,7 @@ class WebBridge:
         if operation == "verify":
             if self.active_turn is not None:
                 raise ValueError("Resolve pending action cards before starting verification.")
-            return {"report": verify_tools(), "kind": "deterministic_sandbox"}
+            return {"report": verify_agent911(), "kind": "deterministic_sandbox"}
         if operation == "live_test":
             if self.active_turn is not None:
                 raise ValueError("Resolve pending action cards before starting a live run test.")
@@ -284,7 +283,7 @@ class WebBridge:
                 check("response_schema", False, "No response schema was available to validate.")
                 check("non_mutating_test", True, "No model proposals were executed.")
 
-            system_info = dispatch(self.workspace, "system_info", {})
+            system_info = dispatch_action(self.workspace, "system_info", {})
             info_ok = (isinstance(system_info, dict)
                        and {"system", "python", "architecture"} <= set(system_info))
             check("local_diagnostic_tool", info_ok,
@@ -412,7 +411,7 @@ class WebBridge:
                 rejected.append({"status": "rejected", "reason": "Malformed proposal; expected an object."})
                 continue
             try:
-                name, arguments = validate_call(call.get("name"), call.get("arguments", {}))
+                name, arguments = validate_action(call.get("name"), call.get("arguments", {}))
                 arguments, corrected = ground_explicit_write(prompt, name, arguments)
                 # Validate paths before presenting approval, and repeat validation at execution.
                 if name in {"read_file", "write_file", "list_files", "search_workspace"}:
@@ -474,10 +473,10 @@ class WebBridge:
         else:
             try:
                 # Validate again at the trust boundary immediately before dispatch.
-                name, arguments = validate_call(pending["name"], pending["arguments"])
+                name, arguments = validate_action(pending["name"], pending["arguments"])
                 if name in {"read_file", "write_file", "list_files", "search_workspace"}:
                     self.workspace.resolve(arguments.get("path", "."))
-                output = dispatch(self.workspace, name, arguments)
+                output = dispatch_action(self.workspace, name, arguments)
                 verification = _verify_tool_result(self.workspace, name, arguments, output)
                 outcome = {"tool": name, "arguments": arguments, "status": "succeeded",
                            "result": output, "verification": verification}
