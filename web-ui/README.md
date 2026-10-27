@@ -1,56 +1,85 @@
-# Needle Agent Web UI
+# Agent 911 Web Console
 
-This is a browser-based alternative to the Textual terminal UI. The Node.js server serves a self-contained interface and starts a persistent Python bridge that reuses Needle Agent's existing model, workspace, cloud, validation, and action-dispatch code. No npm dependencies or third-party browser scripts are needed.
+Agent 911 is a browser-based, local-first control console. It keeps the current Python runtime as the execution engine and provides distinct screens for task execution, model configuration, evidence checks, and user-directed upgrade prompts. The browser app has no npm runtime dependencies and does not load third-party scripts.
 
 ## Requirements
 
 - Node.js 20 or newer
 - Python 3.10 or newer
-- Needle Agent and its Python dependencies installed in the active Python environment
-
-From the repository root, install the Python project once:
-
-\`\`\`sh
-python -m pip install -e .
-\`\`\`
-
-On Kali/Linux systems where the command is \`python3\`, use \`python3 -m pip install -e .\`.
-
-## Start
+- The repository's Python dependencies installed in the active environment
+- Compatible local model assets for real local inference, unless the runtime can discover or download its configured assets
 
 From the repository root:
 
 \`\`\`sh
+python3 -m pip install -e .
 node web-ui/server.mjs --workspace ./needle-workspace
 \`\`\`
 
-Open the exact \`http://127.0.0.1:8765\` address printed in the terminal. Leave that terminal running while using the app. Stop it with Ctrl+C.
+Open the exact \`http://127.0.0.1:8765\` address printed in the terminal. Keep the terminal open while using the app, and stop it with Ctrl+C. On Windows, use \`python\` instead of \`python3\` if that is the installed interpreter.
 
-Optional paths can be provided with \`--weights FILE\` and \`--engine FILE\`, or through \`NEEDLE3_WEIGHTS\` and \`NEEDLE3_LIB_PATH\`. Use \`--python EXECUTABLE\` if your Python interpreter is not called \`python3\` (or \`python\` on Windows). Use \`--port PORT\` to choose a different local port.
-
-No \`npm install\` is required. Run the Node server tests with:
+No \`npm install\` is required. Run the combined Node and Python bridge UI tests with:
 
 \`\`\`sh
 npm --prefix web-ui test
 \`\`\`
 
-## Safety and runtime behavior
+Run the Python suite separately with:
 
-- The HTTP server binds only to \`127.0.0.1\`; it is not a LAN or public web server.
-- The server checks the request host/origin and issues a per-server browser token for API requests. It sets a restrictive Content Security Policy and other browser security headers.
-- The Python bridge is the authority for all model calls, schema checks, path confinement, and tool dispatch. Browser-supplied tool names or arguments are not directly executed.
-- Every proposed tool action receives its own approval card. Approve or deny each action; nothing executes simply because a model proposed it. Paths and schemas are checked again at execution time.
-- Local tools remain restricted to Needle's existing allowlist and workspace. The web UI does not add shell execution, arbitrary code execution, or remote computer control.
-- Cloud planning/hybrid modes require cloud configuration. The prompt and results of approved actions may be sent to the configured provider for planning/review; approval cards disclose this. The provider never executes local tools.
-- API keys are not returned to browser JavaScript. By default, keys are held only in the Python process unless the user explicitly selects the remember-key option. A key may also be loaded from \`NEEDLE_API_KEY\` or the existing local config.
-- Conversation memory and preferences continue to use Needle's existing local workspace stores. Clearing the visible browser transcript only clears the display; it does not erase agent memory or workspace files.
+\`\`\`sh
+python3 -m unittest discover -s tests -v
+\`\`\`
 
-The UI uses one bounded hybrid proposal round per user request; if more work is required, review the outcomes and submit a follow-up request. As in the terminal UI, the cloud review is advisory and is not proof that a task is complete.
+Optional startup flags:
+
+- \`--workspace PATH\`: workspace root, default \`./needle-workspace\`.
+- \`--weights FILE\`: explicit local model weights.
+- \`--engine FILE\`: explicit native engine library.
+- \`--config-dir PATH\`: alternate Agent 911 user configuration directory.
+- \`--port PORT\`: local HTTP port, default 8765.
+- \`--python EXECUTABLE\`: choose a Python interpreter.
+- \`--context-tokens N\`: bounded context budget.
+
+Environment variables \`NEEDLE3_WEIGHTS\` and \`NEEDLE3_LIB_PATH\` may provide local runtime asset paths. Explicit command-line paths take precedence over paths saved from the Model Configuration screen.
+
+## Included control surfaces
+
+### Chat and action approval
+
+Local, cloud-planning, and hybrid modes use bounded local tools. Proposed actions are schema-validated and workspace paths are checked before approval and again immediately before dispatch. Every action requires an explicit approval decision. Cloud-mode cards disclose that approved outcomes may be sent to the configured provider for review. This UI does not add shell or arbitrary-code execution.
+
+### Model Configuration
+
+The Models screen stores the default mode and optional local model weights/engine paths under the Agent 911 user configuration directory. Asset paths must resolve to existing files; choosing an engine requires a weights file. Changing the model configuration discards the prior in-memory runtime so the next model request initializes from the new settings. Native engine libraries execute inside the local Python process, so only configure libraries you trust.
+
+The optional cloud provider uses the OpenAI-compatible \`/models\` and \`/chat/completions\` endpoints. Remote URLs require HTTPS; plain HTTP is allowed only for localhost. API keys are not returned to browser JavaScript. Keys are held in memory by default and are persisted only when the explicit remember-key option is enabled.
+
+### Verification and Live Run Test
+
+- **Deterministic verification** runs the existing workspace and policy checks in a disposable temporary workspace that is deleted afterward. It does not need to load a model.
+- **Live Run Test** initializes and calls the currently selected local model, checks the response structure, and runs a fixed read-only system diagnostic. Model-proposed calls are never dispatched during this diagnostic. It is a real inference test, so it may take time or fail if runtime assets are unavailable.
+
+A passing deterministic suite does not prove the model is usable; a passing live model test does not prove every model-generated proposal is correct. Read each report and verify important outcomes independently.
+
+### Upgrade prompts
+
+Upgrade prompts are saved in the Agent 911 user configuration directory. The configured local model can draft an implementation plan with steps, failure cases, tests, acceptance criteria, and rollback considerations. Draft plans are advisory: submitting a prompt does not edit source code, install packages, change permissions, or apply an upgrade. Archive old requests when they no longer need to be tracked.
+
+### Memory and data
+
+Conversation history and user-approved preferences continue to be stored locally in the selected workspace by the underlying runtime. Clearing the visible chat clears only the display; it does not erase workspace data or stored conversation context. Cloud requests and approved action outcomes may be transmitted to the configured provider during planning and review.
+
+## Server security
+
+- The server binds only to \`127.0.0.1\`; it is not a LAN or public web server.
+- It checks host/origin, issues a per-run browser token, limits JSON bodies, and sets a restrictive Content Security Policy and other browser security headers.
+- All model and tool dispatch remains in the Python bridge. Browser requests cannot supply a raw executable or an arbitrary tool to dispatch.
+- The Python bridge reserves stdout for its JSON-lines protocol so runtime diagnostics cannot masquerade as API responses.
+- Nothing here is a claim that a native model or real cloud provider has been tested in a given environment; use the Live Run Test on the machine where Agent 911 will run.
 
 ## Troubleshooting
 
-- If the browser cannot connect, inspect the terminal where the server was started.
-- To see Python bridge diagnostic output in that terminal, start with \`NEEDLE_WEB_DEBUG=1 node web-ui/server.mjs\` (add your normal \`--workspace\`, \`--weights\`, or \`--engine\` arguments after the script path).
-- If the local model is not found, pass the compatible model archive and native engine paths or set the documented environment variables. If a Python executable other than the default is needed, pass \`--python /path/to/python\`.
+- If the browser cannot connect, inspect the terminal. To print Python bridge diagnostics there, start with \`NEEDLE_WEB_DEBUG=1 node web-ui/server.mjs --workspace ./needle-workspace\`.
+- If a local model fails to initialize, confirm that the model weights and native engine match your platform and runtime; configure them in Models or pass explicit paths.
 - If port 8765 is already in use, choose another with \`--port 8766\`.
-- The first local model initialization may take time and may need to download the runtime assets when no compatible local pair is staged.
+- If you need to isolate settings during a test, pass \`--config-dir /tmp/agent911-test-config\`.
