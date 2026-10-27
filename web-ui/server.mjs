@@ -32,13 +32,14 @@ function getSafeErrorStatus(error) {
 }
 
 class PythonBridge {
-  constructor({ workspace, weights, engine, contextTokens = 1600, pythonExecutable }) {
+  constructor({ workspace, weights, engine, contextTokens = 1600, pythonExecutable, configDir }) {
     const executable = pythonExecutable || process.env.NEEDLE_PYTHON
       || (process.platform === "win32" ? "python" : "python3");
     const args = ["-u", "-m", "needle_agent.web_bridge", "--workspace", workspace,
       "--context-tokens", String(contextTokens)];
     if (weights) args.push("--weights", weights);
     if (engine) args.push("--engine", engine);
+    if (configDir) args.push("--config-dir", configDir);
 
     const inheritedPythonPath = process.env.PYTHONPATH || "";
     const pythonPath = [path.join(REPO_ROOT, "src"), inheritedPythonPath].filter(Boolean).join(path.delimiter);
@@ -193,9 +194,10 @@ export function createWebServer(options = {}) {
   const weights = options.weights ? path.resolve(options.weights) : (process.env.NEEDLE3_WEIGHTS || undefined);
   const engine = options.engine ? path.resolve(options.engine) : (process.env.NEEDLE3_LIB_PATH || undefined);
   const contextTokens = Number.isInteger(options.contextTokens) ? options.contextTokens : 1600;
+  const configDir = options.configDir ? path.resolve(options.configDir) : undefined;
   const token = randomBytes(32).toString("hex");
   const bridge = new PythonBridge({
-    workspace, weights, engine, contextTokens,
+    workspace, weights, engine, contextTokens, configDir,
     pythonExecutable: options.pythonExecutable,
   });
 
@@ -349,6 +351,7 @@ function parseArgs(argv) {
     else if (arg === "--port" && argv[i + 1]) options.port = Number(argv[++i]);
     else if (arg === "--python" && argv[i + 1]) options.pythonExecutable = argv[++i];
     else if (arg === "--context-tokens" && argv[i + 1]) options.contextTokens = Number(argv[++i]);
+    else if (arg === "--config-dir" && argv[i + 1]) options.configDir = argv[++i];
     else if (arg === "--help" || arg === "-h") options.help = true;
     else throw new Error("Unknown argument: " + arg);
   }
@@ -365,7 +368,7 @@ async function main() {
     return;
   }
   if (options.help) {
-    console.log("Needle Agent Web UI\nUsage: node web-ui/server.mjs [--workspace PATH] [--weights FILE] [--engine FILE] [--port PORT] [--python EXECUTABLE] [--context-tokens N]");
+    console.log("Agent 911 Web UI\nUsage: node web-ui/server.mjs [--workspace PATH] [--weights FILE] [--engine FILE] [--config-dir PATH] [--port PORT] [--python EXECUTABLE] [--context-tokens N]");
     return;
   }
   const port = options.port ?? Number(process.env.PORT || 8765);
