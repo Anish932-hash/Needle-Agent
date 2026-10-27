@@ -22,6 +22,7 @@ from .cloud import CloudAgent, CloudSettings, detect_models
 from .context import AutomaticContextManager
 from .conversation import ConversationMemory
 from .evolution import EvolutionMemory
+from .guardian import Guardian, GuardianExecutor
 from .request_guard import ground_explicit_write
 from .tools import Workspace
 
@@ -68,6 +69,15 @@ def _verify_tool_result(workspace: Workspace, name: str,
         if name in checks:
             return {"status": "passed" if checks[name] else "failed",
                     "method": "output-shape check"}
+        if name in {"run_shell", "run_code"}:
+            valid = (isinstance(output, dict) and isinstance(output.get("exit_code"), int)
+                     and isinstance(output.get("sandbox"), dict)
+                     and output["sandbox"].get("backend") == "bubblewrap")
+            passed = valid and output.get("exit_code") == 0 and not output.get("timed_out", False)
+            return {"status": "passed" if passed else ("failed" if valid else "observed"),
+                    "method": "sandbox exit status and runtime metadata",
+                    "exit_code": output.get("exit_code") if isinstance(output, dict) else None,
+                    "timed_out": bool(output.get("timed_out")) if isinstance(output, dict) else False}
         return {"status": "observed",
                 "method": "local tool returned; semantic result was not independently checked"}
     except (KeyError, OSError, ValueError, TypeError) as exc:
@@ -111,6 +121,8 @@ class WebBridge:
         self.engine = engine or local_config.get("engine_path") or None
         self.default_mode = self.model_configuration.get("default_mode", "local")
         self.upgrade_prompts = UpgradePromptStore(self.config_dir / "upgrade-prompts.json")
+        self.guardian = Guardian(self.workspace.root, self.config_dir / "guardian-audit.jsonl")
+        self.guardian_executor = GuardianExecutor(self.workspace, self.config_dir / "guardian-audit.jsonl")
         self.memory = EvolutionMemory(self.workspace.root / ".needle-agent-memory.json")
         self.conversation = ConversationMemory(self.workspace.root / ".needle-agent-conversation.json")
         self.context = AutomaticContextManager(self.conversation, self.memory, context_tokens)
@@ -161,6 +173,22 @@ class WebBridge:
                     "model_configuration": self._public_model_configuration()}
         if operation == "settings":
             return {"settings": self._public_settings()}
+        if operation == "guardian_status":
+            return {
+                "guardian": {
+                    "name": "Agent 911 Guardian",
+                    "policy": "explicit approval; deny by default for unsandboxed execution",
+                    "execution_backend": "bubblewrap" if self.guardian.sandbox_available() else "unavailable (fail closed)",
+                    "execution_available": self.guardian.sandbox_available() and os.name == "posix" and hasattr(os, "geteuid") and os.geteuid() != 0,
+                    "network_isolation": "unshared network namespace",
+                    "filesystem_scope": "read-only runtime plus selected workspace read/write",
+                    "max_shell_chars": 8000,
+                    "max_code_chars": 20000,
+                    "max_timeout_seconds": 30,
+                    "requires_approval": True,
+                    "audit_events": self.guardian.recent_events(50),
+                }
+            }
         if operation == "model_configuration":
             return {"model_configuration": self._public_model_configuration()}
         if operation == "save_model_configuration":
@@ -429,6 +457,14 @@ class WebBridge:
             try:
                 name, arguments = validate_action(call.get("name"), call.get("arguments", {}))
                 arguments, corrected = ground_explicit_write(prompt, name, arguments)
+                guardian_assessment = self.guardian.assess(name, arguments, user_request=prompt, mode=mode)
+                if not guardian_assessment["allowed"]:
+                    self.guardian.record("proposal_blocked", name=name, assessment=guardian_assessment,
+                                         status="denied", detail="; ".join(guardian_assessment["findings"]))
+                    rejected.append({"status": "rejected",
+                                     "reason": "Guardian denied proposal: " + " ".join(guardian_assessment["findings"]),
+                                     "proposal": name})
+                    continue
                 # Validate paths before presenting approval, and repeat validation at execution.
                 if name in {"read_file", "write_file", "list_files", "search_workspace"}:
                     self.workspace.resolve(arguments.get("path", "."))
@@ -441,6 +477,7 @@ class WebBridge:
                     "id": action_id, "turn_id": turn_id, "name": name,
                     "arguments": arguments, "source": call.get("_source", "local Needle"),
                     "corrected": corrected, "cloud": mode in {"cloud", "hybrid"},
+                    "mode": mode, "user_request": prompt, "guardian": guardian_assessment,
                 }
                 self.pending[action_id] = pending
                 self.active_turn["pending_ids"].append(action_id)
@@ -448,6 +485,7 @@ class WebBridge:
                     "id": action_id, "name": name, "arguments": arguments,
                     "source": pending["source"], "cloud_data_notice": pending["cloud"],
                     "corrected_to_match_request": corrected,
+                    "guardian": guardian_assessment,
                 })
             except (ValueError, TypeError) as exc:
                 rejected.append({"status": "rejected", "reason": str(exc),
@@ -482,6 +520,8 @@ class WebBridge:
         result: dict[str, Any] = {"id": action_id, "name": pending["name"],
                                   "approved": approved}
         if not approved:
+            self.guardian.record("user_denied", name=pending["name"], action_id=action_id,
+                                 assessment=pending.get("guardian"), status="denied")
             outcome = {"tool": pending["name"], "arguments": pending["arguments"],
                        "status": "denied", "reason": "User denied the proposed action."}
             turn["outcomes"].append(outcome)
@@ -492,7 +532,26 @@ class WebBridge:
                 name, arguments = validate_action(pending["name"], pending["arguments"])
                 if name in {"read_file", "write_file", "list_files", "search_workspace"}:
                     self.workspace.resolve(arguments.get("path", "."))
-                output = dispatch_action(self.workspace, name, arguments)
+                guardian_assessment = self.guardian.assess(
+                    name, arguments, user_request=pending.get("user_request", ""),
+                    mode=pending.get("mode", "local"),
+                )
+                if not guardian_assessment["allowed"]:
+                    self.guardian.record("approval_recheck_blocked", name=name, action_id=action_id,
+                                         assessment=guardian_assessment, status="denied",
+                                         detail="; ".join(guardian_assessment["findings"]))
+                    raise ValueError("Guardian denied action at dispatch: " + " ".join(guardian_assessment["findings"]))
+                self.guardian.record("user_approved", name=name, action_id=action_id,
+                                     assessment=guardian_assessment, status="approved")
+                if name in {"run_shell", "run_code"}:
+                    output = dispatch_action(self.workspace, name, arguments, execution_context={
+                        "executor": self.guardian_executor,
+                        "user_request": pending.get("user_request", ""),
+                        "mode": pending.get("mode", "local"),
+                        "action_id": action_id,
+                    })
+                else:
+                    output = dispatch_action(self.workspace, name, arguments)
                 verification = _verify_tool_result(self.workspace, name, arguments, output)
                 outcome = {"tool": name, "arguments": arguments, "status": "succeeded",
                            "result": output, "verification": verification}

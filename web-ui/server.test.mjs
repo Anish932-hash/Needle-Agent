@@ -67,6 +67,16 @@ test("serves the UI locally, protects its API, and validates requests", async ()
     assert.equal(modelConfig.model_configuration.default_mode, "local");
     assert.equal(modelConfig.model_configuration.runtime_initialized, false);
 
+    const guardianResponse = await fetch(base + "/api/guardian", {
+      headers: { "X-Needle-Token": token },
+    });
+    assert.equal(guardianResponse.status, 200);
+    const guardian = (await guardianResponse.json()).guardian;
+    assert.equal(guardian.requires_approval, true);
+    assert.equal(guardian.network_isolation, "unshared network namespace");
+    assert.ok(guardian.execution_backend);
+    assert.deepEqual(guardian.audit_events, []);
+
     const upgradesResponse = await fetch(base + "/api/upgrades", {
       headers: { "X-Needle-Token": token },
     });

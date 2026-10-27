@@ -142,6 +142,65 @@ class WebBridgeTests(unittest.TestCase):
         self.assertIn("model_inference", {item["name"] for item in report["checks"]})
         self.assertIn("local_diagnostic_tool", {item["name"] for item in report["checks"]})
 
+    def test_shell_execution_waits_for_approval_and_is_guardian_assessed(self):
+        from needle_agent.guardian import GuardianExecutor
+
+        self.bridge.agent = FakeAgent({
+            "assistant_message": "I can run the requested command in the sandbox.",
+            "function_calls": [{
+                "name": "run_shell",
+                "arguments": {"command": "echo hello", "timeout_seconds": 5},
+            }],
+        })
+        with patch("needle_agent.guardian.Guardian.sandbox_available", return_value=True), \
+             patch("needle_agent.guardian.os.geteuid", return_value=1000):
+            response = self.bridge.handle({
+                "op": "chat",
+                "payload": {"prompt": "Run this shell command: echo hello", "mode": "local"},
+            })
+
+            self.assertEqual(len(response["proposals"]), 1)
+            proposal = response["proposals"][0]
+            self.assertEqual(proposal["guardian"]["risk_level"], "high")
+            self.assertTrue(proposal["guardian"]["requires_approval"])
+            self.assertEqual(self.bridge.pending[proposal["id"]]["name"], "run_shell")
+
+            fake_result = {
+                "exit_code": 0, "timed_out": False, "stdout": "hello\\n", "stderr": "",
+                "sandbox": {"backend": "bubblewrap", "network": "disabled"},
+                "duration_seconds": 0.01,
+            }
+            with patch.object(GuardianExecutor, "execute", return_value=fake_result) as execute:
+                outcome = self.bridge.handle({
+                    "op": "resolve_action",
+                    "payload": {"id": proposal["id"], "approved": True},
+                })
+
+        execute.assert_called_once()
+        self.assertEqual(outcome["status"], "succeeded")
+        self.assertEqual(outcome["output"]["sandbox"]["backend"], "bubblewrap")
+        self.assertTrue(outcome["turn_result"]["completed"])
+        self.assertTrue(any(event["event"] == "user_approved" for event in self.bridge.guardian.recent_events()))
+
+    def test_shell_execution_is_blocked_without_explicit_run_request(self):
+        self.bridge.agent = FakeAgent({
+            "assistant_message": "I will run a command.",
+            "function_calls": [{
+                "name": "run_shell",
+                "arguments": {"command": "echo hello"},
+            }],
+        })
+        with patch("needle_agent.guardian.Guardian.sandbox_available", return_value=True), \
+             patch("needle_agent.guardian.os.geteuid", return_value=1000):
+            response = self.bridge.handle({
+                "op": "chat",
+                "payload": {"prompt": "Explain what shell commands do.", "mode": "local"},
+            })
+
+        self.assertEqual(response["proposals"], [])
+        self.assertTrue(any("not execution consent" in item["reason"] for item in response["rejected"]))
+        self.assertEqual(self.bridge.pending, {})
+
     def test_model_configuration_is_saved_and_invalidates_loaded_runtime(self):
         weights = self.workspace / "local-model.cact"
         weights.write_bytes(b"test weights")
