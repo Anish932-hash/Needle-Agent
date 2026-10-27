@@ -1,4 +1,4 @@
-"""Guardian policy, tamper-evident audit events, and fail-closed Linux execution sandbox.
+"""Guardian policy, local audit events, and fail-closed Linux execution sandbox.
 
 Execution is only reachable after the web bridge creates an explicit approval card and
 receives approval. Child processes run in bubblewrap with a private PID/network namespace,
@@ -46,6 +46,8 @@ _BLOCKED_SHELL = (
      "Direct references to host-sensitive paths are blocked."),
     (re.compile(r"(?:curl|wget|nc|ncat|netcat|socat|ssh|scp|ftp|telnet)\b", re.I),
      "Network clients are blocked; execution has no network namespace."),
+    (re.compile(r"\.needle-agent-(?:memory|conversation|capabilities)\.json", re.I),
+     "Shell commands may not access Agent 911's reserved internal stores."),
 )
 _BLOCKED_CODE = (
     (re.compile(r"/(?:etc/shadow|root/|home/[^\s'\"]+|proc/sys/|sys/|dev/(?:mem|kmem|sd[a-z]|nvme\w*|mapper))", re.I),
@@ -220,7 +222,7 @@ class GuardianExecutor:
                 if not runtime_check.exists():
                     raise GuardianDenied("The sandbox runtime /usr/bin/python3 is unavailable.")
             else:
-                command = ["/bin/sh", "-lc", arguments["command"]]
+                command = ["/bin/sh", "-c", arguments["command"]]
             sandbox = self._sandbox_command(command)
             with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
                 process = subprocess.Popen(
