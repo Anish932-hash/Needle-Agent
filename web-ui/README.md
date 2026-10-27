@@ -8,16 +8,25 @@ Agent 911 is a browser-based, local-first control console with a dedicated core,
 - Python 3.10 or newer
 - The repository's Python dependencies installed in the active environment
 - Compatible local model assets for real local inference, unless the runtime can discover or download its configured assets
-- Linux bubblewrap (bwrap) for shell/Python execution; these actions remain disabled if the sandbox is missing or the app runs as root
+- Linux bubblewrap (bwrap) for Guardian shell/Python execution; the web console itself can run without it, but execution remains blocked if the sandbox is missing or the app runs as root
 
-From the repository root:
+From the repository root, the easiest route is the project installer, which keeps the Python bridge attached to the selected virtual environment:
+
+```sh
+python3 install.py --interface web
+python3 install.py --web --run
+```
+
+The first command prepares the environment and prints the launch command. The second prepares it and immediately starts the web console. You can pass `--workspace PATH`, `--port PORT`, `--config-dir PATH`, `--weights FILE`, and `--engine FILE` to the installer. Do not run the web installer as root.
+
+For a manual install, from the repository root run:
 
 ```sh
 python3 -m pip install -e .
 node web-ui/server.mjs --workspace ./needle-workspace
 ```
 
-Open the exact `http://127.0.0.1:8765` address printed in the terminal. Keep the terminal open while using the app, and stop it with Ctrl+C. On Windows, use `python` instead of `python3` if that is the installed interpreter.
+Open the exact `http://127.0.0.1:8765` address printed in the terminal. Keep the terminal open while using the app, and stop it with Ctrl+C. On Windows, use `python` instead of `python3` if that is the installed interpreter. The console requires Node.js 20 or newer; the installer checks the installed version before setting up the web interface.
 
 No `npm install` is required. Run the combined Node and Python bridge UI tests with:
 
