@@ -229,6 +229,10 @@ export function createWebServer(options = {}) {
           sendJson(res, 200, await bridge.call("status", {}));
           return;
         }
+        if (req.method === "GET" && url.pathname === "/api/guardian") {
+          sendJson(res, 200, await bridge.call("guardian_status", {}));
+          return;
+        }
         if (req.method === "GET" && url.pathname === "/api/settings") {
           sendJson(res, 200, await bridge.call("settings", {}));
           return;
