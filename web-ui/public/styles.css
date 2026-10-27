@@ -425,3 +425,83 @@ code { color: #bddb9f; background: #17201a; padding: 2px 4px; border-radius: 3px
   .report-summary { align-items: flex-start; flex-direction: column; }
   .report-summary span { text-align: left; }
 }
+
+
+/* Guardian control plane */
+.guardian-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: 20px;
+  align-items: start;
+}
+.guardian-metric {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,.1));
+  font-size: 13px;
+}
+.guardian-metric span { color: var(--muted, #9aa7b7); }
+.guardian-metric strong { text-align: right; max-width: 62%; font-weight: 600; }
+.guardian-action-review {
+  margin-top: 14px;
+  padding: 13px 15px;
+  border: 1px solid rgba(234, 179, 8, .38);
+  border-radius: 10px;
+  background: rgba(234, 179, 8, .06);
+}
+.guardian-risk {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+.guardian-risk.high { color: #fbbf24; }
+.guardian-risk.medium { color: #93c5fd; }
+.guardian-risk.low { color: #86efac; }
+.guardian-action-review p {
+  margin: 6px 0 0;
+  color: var(--muted, #9aa7b7);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.guardian-events { display: grid; gap: 10px; }
+.guardian-event {
+  padding: 14px;
+  border: 1px solid var(--border, rgba(255,255,255,.1));
+  border-radius: 10px;
+  background: rgba(255,255,255,.02);
+  overflow-wrap: anywhere;
+}
+.guardian-event-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 12px;
+}
+.guardian-event-heading strong { overflow-wrap: anywhere; }
+.guardian-event-heading span {
+  flex: 0 0 auto;
+  color: var(--muted, #9aa7b7);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: .06em;
+}
+.guardian-event p {
+  margin: 8px 0;
+  color: var(--muted, #9aa7b7);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.guardian-event code {
+  color: var(--muted, #9aa7b7);
+  font-size: 10px;
+  word-break: break-all;
+}
+@media (max-width: 900px) {
+  .guardian-grid { grid-template-columns: minmax(0, 1fr); }
+}
