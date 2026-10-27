@@ -198,7 +198,7 @@
         <div class="upgrade-layout">
           <div class="settings-panel">
             <div class="panel-topline"><span class="section-index">01</span><h2>Draft an upgrade request</h2></div>
-            <p class="panel-description">The active local model will analyze the request and draft implementation steps, failure cases, acceptance tests, and rollback considerations. This is planning only.</p>
+            <p class="panel-description">When a cloud provider is configured, Agent 911 asks it to draft implementation steps, failure cases, acceptance tests, and rollback considerations. Without a configured cloud planner, the request is saved as a draft rather than pretending the local tool-calling model can write a long-form plan.</p>
             <form id="upgrade-prompt-form">
               <label for="upgrade-request">What should Agent 911 gain or improve?</label>
               <textarea id="upgrade-request" rows="6" maxlength="10000" placeholder="Describe the intended capability, why it is needed, limits, and how success should be tested…" required></textarea>
