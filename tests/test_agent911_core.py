@@ -39,8 +39,12 @@ class Agent911ToolContractTests(unittest.TestCase):
         self.assertEqual((name, args), ("search_workspace", {"query": "needle", "path": "."}))
 
     def test_schema_rejects_unknown_tool_unexpected_fields_and_missing_arguments(self):
-        with self.assertRaisesRegex(ValueError, "Unsupported Agent 911 tool"):
-            validate_action("run_shell", {"command": "echo unsafe"})
+        name, args = validate_action("run_shell", {"command": "echo safe"})
+        self.assertEqual(name, "run_shell")
+        self.assertEqual(args["timeout_seconds"], 10)
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ValueError, "Guardian execution context"):
+                dispatch_action(Workspace(Path(temp) / "workspace"), "run_shell", args)
         with self.assertRaisesRegex(ValueError, "Unexpected argument"):
             validate_action("system_info", {"extra": "field"})
         with self.assertRaisesRegex(ValueError, "Missing required"):
