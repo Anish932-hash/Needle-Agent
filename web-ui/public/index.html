@@ -31,6 +31,9 @@
         <button class="nav-item" id="nav-upgrades" data-view="upgrades-view" type="button">
           <span class="nav-glyph" aria-hidden="true">↗</span><span>Upgrade prompts</span><span class="nav-tail">04</span>
         </button>
+        <button class="nav-item" id="nav-guardian" data-view="guardian-view" type="button">
+          <span class="nav-glyph" aria-hidden="true">⬡</span><span>Guardian</span><span class="nav-tail">05</span>
+        </button>
       </nav>
 
       <div class="sidebar-spacer"></div>
@@ -211,6 +214,34 @@
             <div class="panel-topline"><span class="section-index">02</span><h2>Saved upgrade prompts</h2></div>
             <p class="panel-description">Review drafted plans, then carry approved work into a separately reviewed development change.</p>
             <div id="upgrade-list" class="upgrade-list"><div class="report-empty">Loading saved prompts…</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="guardian-view">
+        <div class="view-heading settings-heading">
+          <div>
+            <div class="eyebrow">POLICY &amp; EXECUTION CONTROL <span class="eyebrow-line"></span></div>
+            <h1>Guardian layer<span class="title-period">.</span></h1>
+            <p class="view-subtitle">Review risk assessments, approval decisions, and sandbox execution events recorded locally by Agent 911.</p>
+          </div>
+          <button class="secondary-button" id="refresh-guardian" type="button">Refresh status ↻</button>
+        </div>
+        <div class="guardian-grid">
+          <div class="settings-panel">
+            <div class="panel-topline"><span class="section-index">01</span><h2>Active enforcement policy</h2></div>
+            <div class="guardian-metric"><span>Execution backend</span><strong id="guardian-backend">Checking…</strong></div>
+            <div class="guardian-metric"><span>Execution availability</span><strong id="guardian-availability">Checking…</strong></div>
+            <div class="guardian-metric"><span>Network policy</span><strong id="guardian-network">Checking…</strong></div>
+            <div class="guardian-metric"><span>Filesystem boundary</span><strong id="guardian-filesystem">Checking…</strong></div>
+            <div class="guardian-metric"><span>Approval requirement</span><strong id="guardian-approval">Mandatory</strong></div>
+            <div class="status-box" id="guardian-status" role="status">Loading Guardian policy…</div>
+            <div class="bottom-notice"><span class="notice-icon">i</span><span>Shell and Python execution fail closed unless Linux bubblewrap is available and Agent 911 is not running as root. Each run gets a private network/PID namespace and a read-only runtime; only the selected workspace is writable. User approval is still required, and the code remains powerful within that workspace.</span></div>
+          </div>
+          <div class="upgrade-list-panel">
+            <div class="panel-topline"><span class="section-index">02</span><h2>Recent Guardian audit</h2></div>
+            <p class="panel-description">The audit stores action names, risk levels, decisions, timestamps, and SHA-256 input fingerprints—not full shell commands or code.</p>
+            <div id="guardian-events" class="guardian-events"><div class="report-empty">Loading local audit events…</div></div>
           </div>
         </div>
       </section>
