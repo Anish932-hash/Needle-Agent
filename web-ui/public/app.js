@@ -677,7 +677,7 @@ ui.upgradeForm.addEventListener("submit", async (event) => {
   if (!request) return;
   upgradeBusy = true;
   $("#draft-upgrade").disabled = true;
-  setStatusBox(ui.upgradeStatus, "Asking the configured local model to draft a future implementation plan…");
+  setStatusBox(ui.upgradeStatus, "Checking cloud planner configuration and drafting an upgrade plan…");
   setConnection(true, "Drafting upgrade plan");
   try {
     const result = await api("/api/upgrade-prompts", {
@@ -688,9 +688,9 @@ ui.upgradeForm.addEventListener("submit", async (event) => {
     setStatusBox(ui.upgradeStatus, result.message || "Upgrade prompt saved.", "success");
     renderUpgradeItems(result.items);
     if (result.item?.plan) {
-      showToast("Upgrade plan drafted and saved locally.");
+      showToast("Upgrade plan drafted and saved. The configured provider received the request.");
     } else {
-      showToast("Upgrade prompt saved, but no plan text was returned.", "error");
+      showToast(result.message || "Upgrade prompt saved as a draft; no plan was generated.", "error");
     }
     setConnection(true, "Upgrade prompt saved");
   } catch (error) {
