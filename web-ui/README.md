@@ -63,7 +63,7 @@ A passing deterministic suite does not prove the model is usable; a passing live
 
 ### Upgrade prompts
 
-Upgrade prompts are saved in the Agent 911 user configuration directory. The configured local model can draft an implementation plan with steps, failure cases, tests, acceptance criteria, and rollback considerations. Draft plans are advisory: submitting a prompt does not edit source code, install packages, change permissions, or apply an upgrade. Archive old requests when they no longer need to be tracked.
+Upgrade prompts are saved in the Agent 911 user configuration directory. A configured OpenAI-compatible cloud model can draft an implementation plan with steps, failure cases, tests, acceptance criteria, and rollback considerations. If no cloud planner is configured or it fails, Agent 911 saves the request as a draft rather than presenting the local tool-calling model's short reasoning as a long-form plan. The upgrade request is sent to the configured provider when cloud planning is used. Draft plans are advisory: submitting a prompt does not edit source code, install packages, change permissions, or apply an upgrade. Archive old requests when they no longer need to be tracked.
 
 ### Memory and data
 
