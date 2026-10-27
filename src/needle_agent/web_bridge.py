@@ -229,8 +229,8 @@ class WebBridge:
         return {
             "default_mode": self.default_mode,
             "local": {
-                "weights_path": local.get("weights_path", ""),
-                "engine_path": local.get("engine_path", ""),
+                "weights_path": self.weights or local.get("weights_path", ""),
+                "engine_path": self.engine or local.get("engine_path", ""),
                 "runtime": "Cactus Needle 3",
             },
             "runtime_initialized": self.agent is not None,
@@ -305,6 +305,7 @@ class WebBridge:
         if len(request_text) > UpgradePromptStore.MAX_REQUEST_CHARS:
             raise ValueError("Upgrade request is too long.")
         plan = ""
+        generation_error = ""
         try:
             agent = self._get_agent()
             result = agent.complete(
@@ -323,11 +324,15 @@ class WebBridge:
                 if isinstance(candidate, str):
                     plan = candidate.strip()[:UpgradePromptStore.MAX_PLAN_CHARS]
             # Any function calls returned by the model are intentionally ignored.
+            if not plan:
+                generation_error = "The model returned no text plan. The request was saved as a draft."
         except Exception as exc:
-            plan = f"Plan generation failed ({type(exc).__name__}: {exc}). The request was saved as a draft; no action was executed."
+            generation_error = f"Plan generation failed ({type(exc).__name__}: {exc}). The request was saved as a draft."
         item = self.upgrade_prompts.add(request_text, plan)
-        return {"item": item, "items": self.upgrade_prompts.list(),
-                "message": "Upgrade request saved. This is a proposed plan only; no code or configuration was changed."}
+        message = "Upgrade request saved. This is a proposed plan only; no code or configuration was changed."
+        if generation_error:
+            message = generation_error + " No action was executed."
+        return {"item": item, "items": self.upgrade_prompts.list(), "message": message}
 
     def _chat(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self.active_turn is not None:
