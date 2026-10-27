@@ -58,6 +58,31 @@ WORKFLOW_RECIPES = (
     "write_text_file",
 )
 
+# Track only overrides introduced by Agent 911, so changing model configuration
+# can restore the process's original environment-based engine fallback.
+_BASELINE_NEEDLE_ENGINE = os.environ.get("NEEDLE3_LIB_PATH")
+_ACTIVE_AGENT911_ENGINE_OVERRIDE: str | None = None
+
+
+def _configure_engine_override(engine_path: str | os.PathLike | None) -> str | None:
+    global _ACTIVE_AGENT911_ENGINE_OVERRIDE
+    if _ACTIVE_AGENT911_ENGINE_OVERRIDE is not None:
+        if os.environ.get("NEEDLE3_LIB_PATH") == _ACTIVE_AGENT911_ENGINE_OVERRIDE:
+            if _BASELINE_NEEDLE_ENGINE:
+                os.environ["NEEDLE3_LIB_PATH"] = _BASELINE_NEEDLE_ENGINE
+            else:
+                os.environ.pop("NEEDLE3_LIB_PATH", None)
+        _ACTIVE_AGENT911_ENGINE_OVERRIDE = None
+
+    if engine_path is None:
+        return None
+    engine = str(Path(engine_path).expanduser().resolve())
+    if not os.path.isfile(engine):
+        raise FileNotFoundError(f"Agent 911 native engine library not found: {engine}")
+    os.environ["NEEDLE3_LIB_PATH"] = engine
+    _ACTIVE_AGENT911_ENGINE_OVERRIDE = engine
+    return engine
+
 
 def validate_action(name: Any, arguments: Any) -> tuple[str, dict[str, Any]]:
     """Validate Agent 911's own public tool schema before approval or dispatch."""
@@ -133,14 +158,9 @@ class Agent911Core:
                  engine_path: str | os.PathLike | None = None):
         self.workspace = workspace
         self.weights = os.fspath(weights) if weights is not None else None
-        self.engine_path = os.fspath(engine_path) if engine_path is not None else None
-        if self.engine_path:
-            engine = os.path.abspath(self.engine_path)
-            if not os.path.isfile(engine):
-                raise FileNotFoundError(f"Agent 911 native engine library not found: {engine}")
-            # Cactus Needle documents this environment variable as its engine selector.
-            os.environ["NEEDLE3_LIB_PATH"] = engine
-            self.engine_path = engine
+        # Cactus Needle selects its native library through this environment variable.
+        # Restore our previous override before applying the newly selected path.
+        self.engine_path = _configure_engine_override(engine_path)
 
         try:
             import needle
