@@ -1,7 +1,16 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch\n\nfrom install import (\n    check_node_version, install_command, local_engine_name, resolve_assets,\n    venv_python, web_launch_command,\n)
+from unittest.mock import patch
+
+from install import (
+    check_node_version,
+    install_command,
+    local_engine_name,
+    resolve_assets,
+    venv_python,
+    web_launch_command,
+)
 
 
 class InstallerTests(unittest.TestCase):
@@ -31,7 +40,7 @@ class InstallerTests(unittest.TestCase):
                 "/usr/bin/node", workspace, weights, engine, port=8766, config_dir=config,
             )
             self.assertEqual(command[0], "/usr/bin/node")
-            self.assertIn(str(Path("web-ui/server.mjs").resolve()), command[1])
+            self.assertEqual(command[1], str((Path(__file__).resolve().parents[1] / "web-ui/server.mjs")))
             self.assertIn("--workspace", command)
             self.assertIn(str(workspace.resolve()), command)
             self.assertIn("--weights", command)
@@ -50,7 +59,7 @@ class InstallerTests(unittest.TestCase):
     def test_node_version_requires_supported_release(self):
         with patch("install.subprocess.run") as run:
             run.return_value.returncode = 0
-            run.return_value.stdout = "v22.10.1\\n"
+            run.return_value.stdout = "v22.10.1"
             run.return_value.stderr = ""
             self.assertEqual(check_node_version("node"), (22, 10, 1))
 
@@ -74,7 +83,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_automatic_asset_detection_returns_existing_pair_when_available(self):
         model, library = resolve_assets(None, None)
-        # The assets are optional for source installs and some non-Linux platforms.
+        # Assets are optional for source installs and some non-Linux platforms.
         if model is not None:
             self.assertTrue(model.is_file())
         if library is not None:
