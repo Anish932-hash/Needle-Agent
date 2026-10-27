@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from needle_agent.web_bridge import WebBridge
 
@@ -159,25 +160,32 @@ class WebBridgeTests(unittest.TestCase):
         self.assertIsNone(self.bridge.agent, "changing model paths must discard the old runtime")
         self.assertEqual(self.bridge.default_mode, "hybrid")
 
-    def test_draft_upgrade_saves_plan_but_ignores_model_tool_calls(self):
-        self.bridge.agent = FakeAgent({
-            "assistant_message": "1. Define the interface.\\n2. Add focused tests.",
-            "function_calls": [{
-                "name": "write_file",
-                "arguments": {"path": "upgrade.py", "text": "this must not be written"},
-            }],
+    def test_draft_upgrade_uses_configured_cloud_planner_without_execution(self):
+        self.bridge.cloud_values.update({
+            "base_url": "https://provider.example/v1",
+            "api_key": "test-only-key",
+            "model": "test-planner",
         })
+        planned_text = "1. Define the interface.\n2. Add focused tests.\n3. Document rollback."
 
-        response = self.bridge.handle({
-            "op": "draft_upgrade",
-            "payload": {"request": "Add a capability configuration screen with validation."},
-        })
+        with patch("needle_agent.web_bridge.CloudAgent") as cloud_class:
+            cloud_class.return_value.draft_upgrade_plan.return_value = planned_text
+            response = self.bridge.handle({
+                "op": "draft_upgrade",
+                "payload": {"request": "Add a capability configuration screen with validation."},
+            })
 
+        cloud_class.assert_called_once_with(
+            "https://provider.example/v1", "test-only-key", "test-planner"
+        )
+        cloud_class.return_value.draft_upgrade_plan.assert_called_once_with(
+            "Add a capability configuration screen with validation."
+        )
         self.assertEqual(response["item"]["status"], "planned")
         self.assertIn("Define the interface", response["item"]["plan"])
         self.assertEqual(len(response["items"]), 1)
         self.assertFalse((self.workspace / "upgrade.py").exists())
-        self.assertIn("Do not call tools", self.bridge.agent.calls[0])
+        self.assertIn("provider received", response["message"])
 
         archived = self.bridge.handle({
             "op": "archive_upgrade",
@@ -186,6 +194,25 @@ class WebBridgeTests(unittest.TestCase):
         self.assertEqual(archived["item"]["status"], "archived")
         self.assertEqual(archived["items"][0]["status"], "archived")
 
+    def test_draft_upgrade_without_language_model_saves_honest_draft(self):
+        self.bridge.agent = FakeAgent({
+            "assistant_message": "This must not be treated as a long-form plan.",
+            "function_calls": [{
+                "name": "write_file",
+                "arguments": {"path": "upgrade.py", "text": "must not be written"},
+            }],
+        })
+
+        response = self.bridge.handle({
+            "op": "draft_upgrade",
+            "payload": {"request": "Add a capability configuration screen with validation."},
+        })
+
+        self.assertEqual(response["item"]["status"], "draft")
+        self.assertEqual(response["item"]["plan"], "")
+        self.assertIn("did not invent a plan", response["message"])
+        self.assertEqual(self.bridge.agent.calls, [])
+        self.assertFalse((self.workspace / "upgrade.py").exists())
 
 
 if __name__ == "__main__":
