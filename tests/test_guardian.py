@@ -39,6 +39,21 @@ class GuardianAssessmentTests(unittest.TestCase):
         self.assertTrue(allowed["network_isolated"])
         self.assertEqual(len(allowed["input_sha256"]), 64)
 
+    def test_explanations_and_negated_instructions_are_not_execution_consent(self):
+        for request in (
+            "Explain how to run this shell command.",
+            "What happens when I run this script?",
+            "Do not run this command: echo hello",
+            "Never execute this code.",
+        ):
+            with self.subTest(request=request):
+                result = self.assess_shell("echo hello", request=request)
+                self.assertFalse(result["allowed"])
+                self.assertTrue(any("not execution consent" in item for item in result["findings"]))
+
+        quoted = self.assess_shell("echo hello", request='Execute "echo hello"')
+        self.assertTrue(quoted["allowed"], quoted)
+
     def test_privileged_and_host_sensitive_shell_patterns_are_blocked(self):
         for command in ("sudo id", "mount /dev/sda1 /mnt", "rm -rf /", "cat /etc/shadow", "curl https://example.invalid"):
             with self.subTest(command=command):
