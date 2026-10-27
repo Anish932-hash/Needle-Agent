@@ -328,7 +328,7 @@ def verify_agent911() -> dict[str, Any]:
 
         def unsupported_tool_blocked() -> str:
             try:
-                dispatch_action(workspace, "run_shell", {"command": "echo unsafe"})
+                dispatch_action(workspace, "not_a_real_tool", {"command": "echo unsafe"})
             except ValueError:
                 return "Unknown tool name was rejected."
             raise AssertionError("an unsupported tool name was accepted")
