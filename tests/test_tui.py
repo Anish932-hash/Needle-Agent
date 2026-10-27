@@ -5,6 +5,11 @@ import unittest
 from unittest.mock import patch
 
 try:
+    from textual.css.query import NoMatches
+except ImportError:
+    NoMatches = LookupError
+
+try:
     from rich.text import Text
     from needle_agent.tui import NeedleTUI, _write_log
     TEXTUAL_AVAILABLE = True
@@ -122,9 +127,22 @@ class TUITests(unittest.TestCase):
                         app.query_one("#model-select").value = "model-a"
                         app.query_one("#prompt").value = "Write Hello in the Text.txt"
                         task = asyncio.create_task(app.submit_prompt())
-                        await pilot.pause(0.3)
+
+                        async def wait_for_approval_modal():
+                            # Native/model and async event scheduling can vary across
+                            # Python versions. Wait for the actual modal instead of
+                            # assuming a fixed delay is always enough.
+                            for _ in range(30):
+                                try:
+                                    app.query_one("#approve")
+                                    return
+                                except NoMatches:
+                                    await pilot.pause(0.1)
+                            self.fail("Approval dialog did not appear within 3 seconds.")
+
+                        await wait_for_approval_modal()
                         await pilot.click("#approve")
-                        await pilot.pause(0.4)
+                        await wait_for_approval_modal()
                         await pilot.click("#approve")
                         await task
 
