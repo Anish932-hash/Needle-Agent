@@ -77,6 +77,36 @@ class GuardianAssessmentTests(unittest.TestCase):
         self.assertNotIn("unique-sensitive-marker", encoded)
         self.assertEqual(events[0]["input_sha256"], assessment["input_sha256"])
 
+    def test_sandbox_command_binds_only_runtime_and_workspace_and_masks_agent_state(self):
+        from needle_agent.guardian import GuardianExecutor
+
+        executor = GuardianExecutor(self.workspace)
+        placeholders = []
+        with tempfile.TemporaryDirectory() as temp:
+            for name in (".needle-agent-memory.json", ".needle-agent-conversation.json", ".needle-agent-capabilities.json"):
+                placeholder = Path(temp) / name
+                placeholder.write_text("{}", encoding="utf-8")
+                placeholders.append((name, placeholder))
+
+            with patch("needle_agent.guardian.shutil.which", return_value="/usr/bin/bwrap"), \
+                 patch("needle_agent.guardian.os.geteuid", return_value=1000):
+                args = executor._sandbox_command(
+                    ["/bin/sh", "-c", "echo safe"],
+                    private_mounts=placeholders,
+                )
+
+        self.assertIn("--unshare-all", args)
+        self.assertIn("--clearenv", args)
+        self.assertIn("--bind", args)
+        self.assertIn(str(self.root.resolve()), args)
+        self.assertNotIn("/", args)
+        for name, placeholder in placeholders:
+            idx = args.index(str(placeholder))
+            self.assertEqual(args[idx + 1], f"/workspace/{name}")
+            self.assertEqual(args[idx - 1], "--ro-bind")
+        self.assertNotIn("--share-net", args)
+        self.assertNotIn("--ro-bind", args[args.index("--"):])
+
     def test_unsandboxed_executor_fails_closed(self):
         from needle_agent.guardian import GuardianExecutor
 
