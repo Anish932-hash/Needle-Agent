@@ -33,7 +33,7 @@ _PRIVATE_STORES = (
 _EXPLICIT_EXECUTION = re.compile(
     r"\b(?:please\s+)?(?:run|execute|launch|start|compile|build|test|install)\s+"
     r"(?:this|the|my|following|provided|selected|current|script|command|code|program|"
-    r"test|tests|project|file|package|[\\"'\x60]|[A-Za-z0-9_.-]+)\b?",
+    r"test|tests|project|file|package|[A-Za-z0-9_.-]+)\b",
     re.IGNORECASE,
 )
 _NEGATED_EXECUTION = re.compile(
