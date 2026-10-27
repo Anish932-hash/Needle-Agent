@@ -208,22 +208,46 @@ class GuardianExecutor:
             raise GuardianDenied("Guardian denied execution: " + " ".join(assessment["findings"]))
         if name not in {"run_shell", "run_code"}:
             raise GuardianDenied("GuardianExecutor only handles run_shell and run_code.")
+
         timeout = arguments.get("timeout_seconds", 10)
         started = time.monotonic()
-        temporary_directory = None
+        execution_directory = None
+        private_temp = tempfile.TemporaryDirectory(prefix="agent911-guardian-private-")
+        created_private_targets: list[Path] = []
+        private_mounts: list[tuple[str, Path]] = []
         try:
+            # Hide the real conversation/memory/capability state behind read-only
+            # empty files in the sandbox. The agent's internal stores are never
+            # mounted into the child namespace, even if a script scans the workspace.
+            for private_name in _PRIVATE_STORES:
+                target = self.workspace.root / private_name
+                if target.is_symlink() or target.is_dir() or (target.exists() and not target.is_file()):
+                    raise GuardianDenied(f"Reserved state path is not a regular file: {private_name}")
+                if not target.exists():
+                    fd = os.open(
+                        target,
+                        os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
+                        0o600,
+                    )
+                    os.close(fd)
+                    created_private_targets.append(target)
+                placeholder = Path(private_temp.name) / private_name
+                placeholder.write_text("{}", encoding="utf-8")
+                placeholder.chmod(0o400)
+                private_mounts.append((private_name, placeholder))
+
             if name == "run_code":
-                temporary_directory = tempfile.mkdtemp(prefix=".agent911-code-", dir=self.workspace.root)
-                script = Path(temporary_directory) / "main.py"
+                execution_directory = tempfile.mkdtemp(prefix=".agent911-code-", dir=self.workspace.root)
+                script = Path(execution_directory) / "main.py"
                 script.write_text(arguments["code"], encoding="utf-8")
                 script.chmod(0o600)
-                command = ["/usr/bin/python3", "-I", str(Path("/workspace") / Path(temporary_directory).name / "main.py")]
-                runtime_check = Path("/usr/bin/python3")
-                if not runtime_check.exists():
+                command = ["/usr/bin/python3", "-I", str(Path("/workspace") / Path(execution_directory).name / "main.py")]
+                if not Path("/usr/bin/python3").exists():
                     raise GuardianDenied("The sandbox runtime /usr/bin/python3 is unavailable.")
             else:
                 command = ["/bin/sh", "-c", arguments["command"]]
-            sandbox = self._sandbox_command(command)
+
+            sandbox = self._sandbox_command(command, private_mounts=private_mounts)
             with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
                 process = subprocess.Popen(
                     sandbox, cwd=str(self.workspace.root), stdin=subprocess.DEVNULL,
@@ -257,7 +281,7 @@ class GuardianExecutor:
                     "backend": "bubblewrap",
                     "network": "disabled",
                     "host_root": "not mounted",
-                    "workspace": "read/write",
+                    "workspace": "read/write; reserved internal stores masked",
                     "timeout_seconds": timeout,
                 },
             }
@@ -272,8 +296,14 @@ class GuardianExecutor:
                                  detail=f"{type(exc).__name__}: {exc}")
             raise
         finally:
-            if temporary_directory:
-                shutil.rmtree(temporary_directory, ignore_errors=True)
+            if execution_directory:
+                shutil.rmtree(execution_directory, ignore_errors=True)
+            private_temp.cleanup()
+            for target in created_private_targets:
+                try:
+                    target.unlink()
+                except OSError:
+                    pass
 
     @staticmethod
     def _resource_limits() -> None:
@@ -288,7 +318,8 @@ class GuardianExecutor:
         if hasattr(resource, "RLIMIT_AS"):
             resource.setrlimit(resource.RLIMIT_AS, (768 * 1024 * 1024, 768 * 1024 * 1024))
 
-    def _sandbox_command(self, command: list[str]) -> list[str]:
+    def _sandbox_command(self, command: list[str], *,
+                        private_mounts: list[tuple[str, Path]] | None = None) -> list[str]:
         bwrap = shutil.which("bwrap")
         if not bwrap or os.name != "posix" or not __import__("sys").platform.startswith("linux"):
             raise GuardianDenied("bubblewrap is required for safe execution; refusing an unsandboxed fallback.")
@@ -296,23 +327,33 @@ class GuardianExecutor:
             raise GuardianDenied("Refusing shell/code execution while Agent 911 is running as root.")
         if not Path("/usr/bin/python3").exists() and command[:1] == ["/usr/bin/python3"]:
             raise GuardianDenied("The sandbox runtime /usr/bin/python3 is unavailable.")
+
         args = [
             bwrap, "--unshare-all", "--die-with-parent", "--new-session",
             "--ro-bind", "/usr", "/usr",
-            "--symlink", "usr/lib", "/lib",
-            "--symlink", "usr/lib64", "/lib64",
-            "--symlink", "usr/bin", "/bin",
+        ]
+        # Bind the host's existing system runtime directories read-only. Resolve
+        # merged-/usr symlinks on the host so the sandbox gets real mount targets.
+        for host_path, target_path in (("/bin", "/bin"), ("/lib", "/lib"), ("/lib64", "/lib64")):
+            if Path(host_path).exists():
+                args.extend(["--ro-bind", str(Path(host_path).resolve()), target_path])
+        args.extend([
             "--dir", "/etc",
             "--proc", "/proc",
             "--dev", "/dev",
             "--tmpfs", "/tmp",
             "--dir", "/workspace",
             "--bind", str(self.workspace.root), "/workspace",
+        ])
+        for private_name, placeholder in (private_mounts or []):
+            args.extend(["--ro-bind", str(placeholder), f"/workspace/{private_name}"])
+        args.extend([
             "--chdir", "/workspace",
             "--clearenv", "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin",
             "--setenv", "HOME", "/tmp",
             "--setenv", "LANG", "C.UTF-8",
+            "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
             "--",
             *command,
-        ]
+        ])
         return args
