@@ -228,11 +228,23 @@ export function createWebServer(options = {}) {
           sendJson(res, 200, await bridge.call("settings", {}));
           return;
         }
+        if (req.method === "GET" && url.pathname === "/api/model-configuration") {
+          sendJson(res, 200, await bridge.call("model_configuration", {}));
+          return;
+        }
+        if (req.method === "GET" && url.pathname === "/api/upgrades") {
+          sendJson(res, 200, await bridge.call("upgrades", {}));
+          return;
+        }
         if (req.method === "GET" && url.pathname === "/api/health") {
           sendJson(res, 200, await bridge.call("health", {}));
           return;
         }
-        if (req.method === "POST" && ["/api/chat", "/api/action", "/api/models", "/api/settings"].includes(url.pathname)) {
+        if (req.method === "POST" && [
+          "/api/chat", "/api/action", "/api/models", "/api/settings",
+          "/api/model-configuration", "/api/verify", "/api/live-test",
+          "/api/upgrade-prompts", "/api/upgrade-prompts/archive"
+        ].includes(url.pathname)) {
           const body = await readJsonBody(req);
           if (!body || typeof body !== "object" || Array.isArray(body)) {
             sendJson(res, 400, { error: "Request body must be a JSON object." });
@@ -249,8 +261,23 @@ export function createWebServer(options = {}) {
           } else if (url.pathname === "/api/models") {
             op = "detect_models";
             payload = body;
-          } else {
+          } else if (url.pathname === "/api/settings") {
             op = "save_settings";
+            payload = body;
+          } else if (url.pathname === "/api/model-configuration") {
+            op = "save_model_configuration";
+            payload = body;
+          } else if (url.pathname === "/api/verify") {
+            op = "verify";
+            payload = {};
+          } else if (url.pathname === "/api/live-test") {
+            op = "live_test";
+            payload = {};
+          } else if (url.pathname === "/api/upgrade-prompts") {
+            op = "draft_upgrade";
+            payload = body;
+          } else if (url.pathname === "/api/upgrade-prompts/archive") {
+            op = "archive_upgrade";
             payload = body;
           }
           sendJson(res, 200, await bridge.call(op, payload));
