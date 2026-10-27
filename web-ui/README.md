@@ -1,6 +1,6 @@
 # Agent 911 Web Console
 
-Agent 911 is a browser-based, local-first control console with a dedicated Agent 911 core and its own tool-schema/validation boundary. It uses Cactus Needle 3 as the local inference runtime and reuses the existing workspace and tested capability store. It provides distinct screens for task execution, model configuration, evidence checks, and user-directed upgrade prompts. The browser app has no npm runtime dependencies and does not load third-party scripts.
+Agent 911 is a browser-based, local-first control console with a dedicated core, its own tool-schema boundary, and a Guardian policy layer. It uses Cactus Needle 3 as the local inference runtime and reuses the existing workspace and tested capability store. It provides screens for task execution, model configuration, evidence checks, upgrade prompts, and Guardian policy/audit review. The browser app has no npm runtime dependencies and does not load third-party scripts.
 
 ## Requirements
 
@@ -8,6 +8,7 @@ Agent 911 is a browser-based, local-first control console with a dedicated Agent
 - Python 3.10 or newer
 - The repository's Python dependencies installed in the active environment
 - Compatible local model assets for real local inference, unless the runtime can discover or download its configured assets
+- Linux bubblewrap (bwrap) for shell/Python execution; these actions remain disabled if the sandbox is missing or the app runs as root
 
 From the repository root:
 
@@ -46,13 +47,21 @@ Environment variables `NEEDLE3_WEIGHTS` and `NEEDLE3_LIB_PATH` may provide local
 
 ### Chat and action approval
 
-Local, cloud-planning, and hybrid modes use bounded local tools. Proposed actions are schema-validated and workspace paths are checked before approval and again immediately before dispatch. Every action requires an explicit approval decision. Cloud-mode cards disclose that approved outcomes may be sent to the configured provider for review. This UI does not add shell or arbitrary-code execution.
+Local, cloud-planning, and hybrid modes use bounded local tools. Proposed actions are schema-validated and workspace paths are checked before approval and again immediately before dispatch. Every action requires an explicit approval decision. Cloud-mode cards disclose that approved outcomes may be sent to the configured provider for review. The Guardian may expose shell and Python execution proposals only in local mode. These proposals are assessed, displayed with high-risk metadata, and still require a separate explicit approval. Execution never occurs inside model inference.
 
 ### Model Configuration
 
 The Models screen stores the default mode and optional local model weights/engine paths under the Agent 911 user configuration directory. Asset paths must resolve to existing files; choosing an engine requires a weights file. Changing the model configuration discards the prior in-memory runtime so the next model request initializes from the new settings. Native engine libraries execute inside the local Python process, so only configure libraries you trust.
 
 The optional cloud provider uses the OpenAI-compatible `/models` and `/chat/completions` endpoints. Remote URLs require HTTPS; plain HTTP is allowed only for localhost. API keys are not returned to browser JavaScript. Keys are held in memory by default and are persisted only when the explicit remember-key option is enabled.
+
+### Guardian policy, shell, and arbitrary Python execution
+
+The Guardian checks every proposal, assigns a risk level, records policy decisions locally, and repeats its assessment immediately before dispatch. Shell and Python execution are high-risk actions and require a user request that explicitly asks to run/execute code, a local-mode session, a valid sandbox, and a separate approval click. Host-sensitive path references, privilege escalation, kernel/mount management, host service controls, storage-formatting patterns, and common network clients are blocked by deterministic checks. The browser's Guardian screen shows execution availability and recent audit events. Audit entries retain timestamps, action names, risk/status, and SHA-256 input fingerprints; they do not store the full shell command or Python source.
+
+Execution is supported only on Linux with bwrap available and with Agent 911 running as an unprivileged user. Install bubblewrap from your distribution package manager; on Kali/Debian the package is named bubblewrap. The executor fails closed—there is no direct-host fallback—if these conditions are not met. Run the web console in local mode for execution; cloud and hybrid sessions cannot execute shell or Python code, preventing their output from being sent to the configured provider by the normal cloud-review flow.
+
+The subprocess runs inside bubblewrap with an unshared network/PID/IPC/UTS namespace, a read-only runtime, private temporary storage, a bounded timeout (1–30 seconds), resource limits, and output truncation. The host's root filesystem and user home are not mounted; only the selected workspace is made writable. The Guardian blocks several high-risk command/code patterns, but pattern checks are not a proof of safety. Approved code can still read or modify files in the chosen workspace and may exhaust resources within the configured limits. Bubblewrap is an OS sandbox, not a virtual machine; keep the system patched, do not run Agent 911 as root, and do not approve code you do not trust. A host kernel vulnerability or a bubblewrap misconfiguration remains outside what this application can guarantee.
 
 ### Verification and Live Run Test
 
@@ -73,7 +82,7 @@ Conversation history and user-approved preferences continue to be stored locally
 
 - The server binds only to `127.0.0.1`; it is not a LAN or public web server.
 - It checks host/origin, issues a per-run browser token, limits JSON bodies, and sets a restrictive Content Security Policy and other browser security headers.
-- All model and tool dispatch remains in the Python bridge. Browser requests cannot supply a raw executable or an arbitrary tool to dispatch.
+- All model and tool dispatch remains in the Python bridge. Browser requests cannot bypass proposal validation or the approval flow. Shell/Python dispatch additionally requires a Guardian execution context and a bubblewrap sandbox.
 - The Python bridge reserves stdout for its JSON-lines protocol so runtime diagnostics cannot masquerade as API responses.
 - Nothing here is a claim that a native model or real cloud provider has been tested in a given environment; use the Live Run Test on the machine where Agent 911 will run.
 
