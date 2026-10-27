@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent import build_agent, dispatch, validate_call
-from .agent911_config import ModelConfiguration, UpgradePromptStore
+from .agent911_config import ModelConfiguration, UpgradePromptStore, agent911_config_dir
 from .cloud import CloudAgent, CloudSettings, detect_models
 from .context import AutomaticContextManager
 from .conversation import ConversationMemory
@@ -99,21 +99,23 @@ def _safe_json(value: Any) -> Any:
 
 class WebBridge:
     def __init__(self, workspace_path: str, weights: str | None = None,
-                 engine: str | None = None, context_tokens: int = 1600):
+                 engine: str | None = None, context_tokens: int = 1600,
+                 config_dir: str | Path | None = None):
         self.workspace = Workspace(Path(workspace_path))
         self.context_tokens = context_tokens
-        self.model_configuration_store = ModelConfiguration()
+        self.config_dir = Path(config_dir).expanduser().resolve() if config_dir else agent911_config_dir()
+        self.model_configuration_store = ModelConfiguration(self.config_dir / "model-configuration.json")
         self.model_configuration = self.model_configuration_store.load()
         local_config = self.model_configuration.get("local", {})
         # Explicit CLI paths win over persisted UI choices for this launch.
         self.weights = weights or local_config.get("weights_path") or None
         self.engine = engine or local_config.get("engine_path") or None
         self.default_mode = self.model_configuration.get("default_mode", "local")
-        self.upgrade_prompts = UpgradePromptStore()
+        self.upgrade_prompts = UpgradePromptStore(self.config_dir / "upgrade-prompts.json")
         self.memory = EvolutionMemory(self.workspace.root / ".needle-agent-memory.json")
         self.conversation = ConversationMemory(self.workspace.root / ".needle-agent-conversation.json")
         self.context = AutomaticContextManager(self.conversation, self.memory, context_tokens)
-        self.settings = CloudSettings()
+        self.settings = CloudSettings(path=self.config_dir / "cloud.json")
         self.cloud_values = self.settings.load()
         self.key_saved_on_disk = self._saved_key_exists()
         self.agent = None
@@ -543,8 +545,9 @@ def main() -> None:
     parser.add_argument("--weights")
     parser.add_argument("--engine")
     parser.add_argument("--context-tokens", type=int, default=1600)
+    parser.add_argument("--config-dir", help="Agent 911 configuration directory")
     args = parser.parse_args()
-    bridge = WebBridge(args.workspace, args.weights, args.engine, args.context_tokens)
+    bridge = WebBridge(args.workspace, args.weights, args.engine, args.context_tokens, args.config_dir)
     for line in sys.stdin:
         request_id = None
         try:
