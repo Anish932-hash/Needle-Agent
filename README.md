@@ -18,7 +18,7 @@ To install and immediately launch the agent:
 python install.py --run
 ```
 
-The installer supports Windows, macOS, and Linux. Options include `--workspace PATH`, `--venv PATH`, `--weights PATH`, `--engine PATH`, and `--no-venv` (install into the active Python environment instead). On Windows, use `py install.py` if `python` is not on `PATH`. Launch the full-screen terminal UI with `needle-agent-tui` (or select `--run` to start the interactive CLI after setup). The TUI accepts `NEEDLE3_WEIGHTS` and `NEEDLE3_LIB_PATH` environment variables for model assets; otherwise, it detects the repository's optional `google_drive/` staging directory. If no compatible local model/engine pair is staged, Needle may download/cache runtime assets on first launch, which requires network access. The installer does not fetch or install arbitrary OS tools, request elevated privileges, or modify system settings.
+The installer supports Windows, macOS, and Linux for the terminal UI. Options include `--workspace PATH`, `--venv PATH`, `--weights PATH`, `--engine PATH`, and `--no-venv` (install into the active Python environment instead). On Windows, use `py install.py` if `python` is not on `PATH`. Launch the full-screen terminal UI with `needle-agent-tui` (or use `--run` to start it after setup). The TUI accepts `NEEDLE3_WEIGHTS` and `NEEDLE3_LIB_PATH` environment variables for model assets; otherwise, it detects the repository's optional `google_drive/` staging directory. If no compatible local model/engine pair is staged, Needle may download/cache runtime assets on first launch, which requires network access. The installer does not install OS packages or modify system settings.
 
 ## Terminal UI and cloud APIs
 
@@ -53,13 +53,24 @@ The workspace is created if needed. Use `/quit` to exit. Needle 3 supports a 2â€
 
 The **Agent 911** browser console has its own core tool contract and validation layer, using Cactus Needle 3 as the local inference runtime while reusing the workspace confinement and tested capability store. It adds Model Configuration, deterministic Verification, a real local-model Live Run Test, persistent Upgrade Prompts, and an advanced Guardian policy/audit layer. Guardian-gated shell and arbitrary Python code execution are available only in local mode, only after explicit approval, and only inside a bubblewrap sandbox on Linux when the app is not running as root. If sandbox requirements are not met, execution is denied; there is no direct-host fallback.
 
-Requirements: Node.js 20+ and Python 3.10+. After installing the Python package as above, start the console from the repository root:
+Requirements for the web console: Node.js 20+ and Python 3.10+. The installer can prepare and launch the console, using the same isolated Python environment as the TUI. From the repository root, run:
 
 ```sh
-node web-ui/server.mjs --workspace ./needle-workspace
+# Prepare Agent 911's web-console environment and print its launch command
+python3 install.py --interface web
+
+# Or prepare and immediately launch the web console
+python3 install.py --web --run
+
+# Optional workspace, port, or configuration directory
+python3 install.py --web --run --workspace ./needle-workspace --port 8765
 ```
 
-Open the loopback address printed in the terminal (normally `http://127.0.0.1:8765`). No `npm install` is required. The server binds only to localhost.
+On systems where `python3` is not the Python 3.10+ interpreter, use the correct Python executable. `--web` is a shortcut for `--interface web`. The installer validates that Node.js is version 20 or newer, passes the selected virtual-environment interpreter to the bridge, and forwards the model/engine paths to the web server. No `npm install` is needed because the web UI has no runtime npm dependencies.
+
+Open the loopback address printed in the terminal (normally `http://127.0.0.1:8765`). The server binds only to localhost; keep its terminal open and stop it with Ctrl+C. Do not run the web console as root.
+
+The Guardian shell/Python executor is Linux-only and deliberately fails closed unless bubblewrap (`bwrap`) is installed and Agent 911 is running as an unprivileged user. On Kali/Debian, install it separately with `sudo apt install bubblewrap`, then launch Agent 911 again as your normal user. The installer does not use sudo or install system packages. Without bubblewrap, the rest of the web console can still run, but Guardian will report shell/code execution as unavailable.
 
 The **Verification** screen tests Agent 911's tool boundary in a disposable temporary workspace. **Live Run Test** calls the configured local Needle model, validates its response, and runs a fixed read-only system diagnostic; proposals from the model during this test are not executed. These checks report different kinds of evidence and neither proves that every future model proposal will be correct.
 
