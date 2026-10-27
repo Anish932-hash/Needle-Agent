@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Loopback-only Node web console for Needle Agent",
+  "description": "Loopback-only Agent 911 web console with Guardian policy and sandbox-execution status",
   "scripts": {
     "start": "node server.mjs",
     "test": "node --check server.mjs && node --check public/app.js && node --test server.test.mjs"

@@ -1,7 +1,16 @@
 import tempfile
 import unittest
 from pathlib import Path
-from install import install_command, local_engine_name, resolve_assets, venv_python
+from unittest.mock import patch
+
+from install import (
+    check_node_version,
+    install_command,
+    local_engine_name,
+    resolve_assets,
+    venv_python,
+    web_launch_command,
+)
 
 
 class InstallerTests(unittest.TestCase):
@@ -20,6 +29,52 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("--find-links", command)
         self.assertEqual(command[-2:], ["-e", str(Path(__file__).resolve().parents[1])])
 
+    def test_web_launch_command_selects_agent911_console_and_forwards_settings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workspace = root / "work"
+            weights = root / "model.cact"
+            engine = root / "libneedle3.so"
+            config = root / "config"
+            command = web_launch_command(
+                "/usr/bin/node", workspace, weights, engine, port=8766, config_dir=config,
+            )
+            self.assertEqual(command[0], "/usr/bin/node")
+            self.assertEqual(command[1], str((Path(__file__).resolve().parents[1] / "web-ui/server.mjs")))
+            self.assertIn("--workspace", command)
+            self.assertIn(str(workspace.resolve()), command)
+            self.assertIn("--weights", command)
+            self.assertIn(str(weights.resolve()), command)
+            self.assertIn("--engine", command)
+            self.assertIn(str(engine.resolve()), command)
+            self.assertIn("--port", command)
+            self.assertIn("8766", command)
+            self.assertIn("--config-dir", command)
+            self.assertIn(str(config.resolve()), command)
+
+    def test_web_launch_command_checks_port_range(self):
+        with self.assertRaisesRegex(ValueError, "port"):
+            web_launch_command("node", Path("workspace"), port=70000)
+
+    def test_node_version_requires_supported_release(self):
+        with patch("install.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "v22.10.1"
+            run.return_value.stderr = ""
+            self.assertEqual(check_node_version("node"), (22, 10, 1))
+
+            run.return_value.stdout = "v18.19.0"
+            with self.assertRaisesRegex(RuntimeError, "requires Node.js 20"):
+                check_node_version("node")
+
+    def test_node_version_rejects_unparseable_output(self):
+        with patch("install.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "not-node"
+            run.return_value.stderr = ""
+            with self.assertRaisesRegex(RuntimeError, "Could not determine Node.js version"):
+                check_node_version("node")
+
     def test_explicit_missing_model_assets_fail_with_clear_path(self):
         with tempfile.TemporaryDirectory() as temp:
             absent = Path(temp) / "missing.cact"
@@ -28,7 +83,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_automatic_asset_detection_returns_existing_pair_when_available(self):
         model, library = resolve_assets(None, None)
-        # The assets are optional for source installs and some non-Linux platforms.
+        # Assets are optional for source installs and some non-Linux platforms.
         if model is not None:
             self.assertTrue(model.is_file())
         if library is not None:
