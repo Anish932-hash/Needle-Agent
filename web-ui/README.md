@@ -1,6 +1,6 @@
 # Agent 911 Web Console
 
-Agent 911 is a browser-based, local-first control console. It keeps the current Python runtime as the execution engine and provides distinct screens for task execution, model configuration, evidence checks, and user-directed upgrade prompts. The browser app has no npm runtime dependencies and does not load third-party scripts.
+Agent 911 is a browser-based, local-first control console with a dedicated Agent 911 core and its own tool-schema/validation boundary. It uses Cactus Needle 3 as the local inference runtime and reuses the existing workspace and tested capability store. It provides distinct screens for task execution, model configuration, evidence checks, and user-directed upgrade prompts. The browser app has no npm runtime dependencies and does not load third-party scripts.
 
 ## Requirements
 
@@ -11,36 +11,36 @@ Agent 911 is a browser-based, local-first control console. It keeps the current 
 
 From the repository root:
 
-\`\`\`sh
+```sh
 python3 -m pip install -e .
 node web-ui/server.mjs --workspace ./needle-workspace
-\`\`\`
+```
 
-Open the exact \`http://127.0.0.1:8765\` address printed in the terminal. Keep the terminal open while using the app, and stop it with Ctrl+C. On Windows, use \`python\` instead of \`python3\` if that is the installed interpreter.
+Open the exact `http://127.0.0.1:8765` address printed in the terminal. Keep the terminal open while using the app, and stop it with Ctrl+C. On Windows, use `python` instead of `python3` if that is the installed interpreter.
 
-No \`npm install\` is required. Run the combined Node and Python bridge UI tests with:
+No `npm install` is required. Run the combined Node and Python bridge UI tests with:
 
-\`\`\`sh
+```sh
 npm --prefix web-ui test
-\`\`\`
+```
 
 Run the Python suite separately with:
 
-\`\`\`sh
+```sh
 python3 -m unittest discover -s tests -v
-\`\`\`
+```
 
 Optional startup flags:
 
-- \`--workspace PATH\`: workspace root, default \`./needle-workspace\`.
-- \`--weights FILE\`: explicit local model weights.
-- \`--engine FILE\`: explicit native engine library.
-- \`--config-dir PATH\`: alternate Agent 911 user configuration directory.
-- \`--port PORT\`: local HTTP port, default 8765.
-- \`--python EXECUTABLE\`: choose a Python interpreter.
-- \`--context-tokens N\`: bounded context budget.
+- `--workspace PATH`: workspace root, default `./needle-workspace`.
+- `--weights FILE`: explicit local model weights.
+- `--engine FILE`: explicit native engine library.
+- `--config-dir PATH`: alternate Agent 911 user configuration directory.
+- `--port PORT`: local HTTP port, default 8765.
+- `--python EXECUTABLE`: choose a Python interpreter.
+- `--context-tokens N`: bounded context budget.
 
-Environment variables \`NEEDLE3_WEIGHTS\` and \`NEEDLE3_LIB_PATH\` may provide local runtime asset paths. Explicit command-line paths take precedence over paths saved from the Model Configuration screen.
+Environment variables `NEEDLE3_WEIGHTS` and `NEEDLE3_LIB_PATH` may provide local runtime asset paths. Explicit command-line paths take precedence over paths saved from the Model Configuration screen.
 
 ## Included control surfaces
 
@@ -52,7 +52,7 @@ Local, cloud-planning, and hybrid modes use bounded local tools. Proposed action
 
 The Models screen stores the default mode and optional local model weights/engine paths under the Agent 911 user configuration directory. Asset paths must resolve to existing files; choosing an engine requires a weights file. Changing the model configuration discards the prior in-memory runtime so the next model request initializes from the new settings. Native engine libraries execute inside the local Python process, so only configure libraries you trust.
 
-The optional cloud provider uses the OpenAI-compatible \`/models\` and \`/chat/completions\` endpoints. Remote URLs require HTTPS; plain HTTP is allowed only for localhost. API keys are not returned to browser JavaScript. Keys are held in memory by default and are persisted only when the explicit remember-key option is enabled.
+The optional cloud provider uses the OpenAI-compatible `/models` and `/chat/completions` endpoints. Remote URLs require HTTPS; plain HTTP is allowed only for localhost. API keys are not returned to browser JavaScript. Keys are held in memory by default and are persisted only when the explicit remember-key option is enabled.
 
 ### Verification and Live Run Test
 
@@ -71,7 +71,7 @@ Conversation history and user-approved preferences continue to be stored locally
 
 ## Server security
 
-- The server binds only to \`127.0.0.1\`; it is not a LAN or public web server.
+- The server binds only to `127.0.0.1`; it is not a LAN or public web server.
 - It checks host/origin, issues a per-run browser token, limits JSON bodies, and sets a restrictive Content Security Policy and other browser security headers.
 - All model and tool dispatch remains in the Python bridge. Browser requests cannot supply a raw executable or an arbitrary tool to dispatch.
 - The Python bridge reserves stdout for its JSON-lines protocol so runtime diagnostics cannot masquerade as API responses.
@@ -79,7 +79,7 @@ Conversation history and user-approved preferences continue to be stored locally
 
 ## Troubleshooting
 
-- If the browser cannot connect, inspect the terminal. To print Python bridge diagnostics there, start with \`NEEDLE_WEB_DEBUG=1 node web-ui/server.mjs --workspace ./needle-workspace\`.
+- If the browser cannot connect, inspect the terminal. To print Python bridge diagnostics there, start with `NEEDLE_WEB_DEBUG=1 node web-ui/server.mjs --workspace ./needle-workspace`.
 - If a local model fails to initialize, confirm that the model weights and native engine match your platform and runtime; configure them in Models or pass explicit paths.
-- If port 8765 is already in use, choose another with \`--port 8766\`.
-- If you need to isolate settings during a test, pass \`--config-dir /tmp/agent911-test-config\`.
+- If port 8765 is already in use, choose another with `--port 8766`.
+- If you need to isolate settings during a test, pass `--config-dir /tmp/agent911-test-config`.
