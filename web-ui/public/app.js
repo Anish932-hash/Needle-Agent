@@ -171,6 +171,22 @@ function addActionCard(proposal) {
   args.textContent = JSON.stringify(proposal.arguments || {}, null, 2);
   card.append(head, args);
 
+  if (proposal.guardian && typeof proposal.guardian === "object") {
+    const panel = document.createElement("div");
+    panel.className = "guardian-action-review";
+    const risk = document.createElement("strong");
+    risk.className = "guardian-risk " + String(proposal.guardian.risk_level || "unknown").toLowerCase();
+    risk.textContent = "GUARDIAN · " + String(proposal.guardian.risk_level || "UNKNOWN").toUpperCase() + " RISK";
+    panel.append(risk);
+    const findings = Array.isArray(proposal.guardian.findings) ? proposal.guardian.findings : [];
+    for (const finding of findings) {
+      const line = document.createElement("p");
+      line.textContent = String(finding);
+      panel.append(line);
+    }
+    card.append(panel);
+  }
+
   if (proposal.corrected_to_match_request) {
     const corrected = document.createElement("p");
     corrected.className = "action-warning";
@@ -332,13 +348,14 @@ $("#clear-visible").addEventListener("click", () => {
 });
 
 function switchView(viewId) {
-  const views = ["chat-view", "models-view", "verification-view", "upgrades-view"];
+  const views = ["chat-view", "models-view", "verification-view", "upgrades-view", "guardian-view"];
   for (const id of views) $("#" + id).classList.toggle("active-view", id === viewId);
   const navMap = {
     "chat-view": "nav-chat",
     "models-view": "nav-models",
     "verification-view": "nav-verification",
     "upgrades-view": "nav-upgrades",
+    "guardian-view": "nav-guardian",
   };
   for (const navId of Object.values(navMap)) $("#" + navId).classList.remove("active");
   $("#" + navMap[viewId]).classList.add("active");
@@ -347,6 +364,7 @@ function switchView(viewId) {
     "models-view": "MODELS",
     "verification-view": "VERIFICATION",
     "upgrades-view": "UPGRADE PROMPTS",
+    "guardian-view": "GUARDIAN",
   };
   ui.breadcrumb.textContent = titles[viewId] || "AGENT 911";
 }
@@ -361,6 +379,11 @@ $("#nav-upgrades").addEventListener("click", async () => {
   switchView("upgrades-view");
   await loadUpgradePrompts();
 });
+$("#nav-guardian").addEventListener("click", async () => {
+  switchView("guardian-view");
+  await loadGuardian();
+});
+$("#refresh-guardian").addEventListener("click", loadGuardian);
 
 function setStatusBox(element, message, type = "") {
   element.textContent = String(message);
@@ -703,6 +726,62 @@ ui.upgradeForm.addEventListener("submit", async (event) => {
   }
 });
 
+function renderGuardianEvents(events) {
+  const container = $("#guardian-events");
+  container.replaceChildren();
+  if (!Array.isArray(events) || events.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "report-empty";
+    empty.textContent = "No Guardian audit events yet. New risk assessments and action decisions will appear here.";
+    container.append(empty);
+    return;
+  }
+  for (const event of events) {
+    const article = document.createElement("article");
+    article.className = "guardian-event";
+    const heading = document.createElement("div");
+    heading.className = "guardian-event-heading";
+    const name = document.createElement("strong");
+    name.textContent = String(event.event || "event") + " · " + String(event.action || "action");
+    const state = document.createElement("span");
+    state.textContent = String(event.status || event.allowed || "recorded");
+    heading.append(name, state);
+    const meta = document.createElement("p");
+    const date = event.timestamp ? new Date(event.timestamp).toLocaleString() : "Time unavailable";
+    meta.textContent = date + " · " + String(event.risk_level || "unknown") + " risk · " + String(event.input_characters ?? 0) + " input characters";
+    const fingerprint = document.createElement("code");
+    fingerprint.textContent = event.input_sha256 ? "SHA-256 " + String(event.input_sha256) : "No execution input fingerprint";
+    article.append(heading, meta, fingerprint);
+    if (event.detail) {
+      const detail = document.createElement("p");
+      detail.textContent = String(event.detail);
+      article.append(detail);
+    }
+    container.append(article);
+  }
+}
+
+async function loadGuardian() {
+  setStatusBox($("#guardian-status"), "Loading local Guardian policy and audit…");
+  try {
+    const result = await api("/api/guardian");
+    const guardian = result.guardian || {};
+    $("#guardian-backend").textContent = guardian.execution_backend || "Unknown";
+    $("#guardian-availability").textContent = guardian.execution_available ? "Available · sandbox required" : "Unavailable · fail closed";
+    $("#guardian-network").textContent = guardian.network_isolation || "Not reported";
+    $("#guardian-filesystem").textContent = guardian.filesystem_scope || "Not reported";
+    $("#guardian-approval").textContent = guardian.requires_approval ? "Mandatory for every action" : "Not reported";
+    setStatusBox($("#guardian-status"), guardian.execution_available
+      ? "Guardian policy loaded. Shell/code execution may be proposed locally, but every run still needs explicit approval."
+      : "Guardian policy loaded. Shell/code execution is currently blocked because its sandbox requirements are not satisfied.",
+      guardian.execution_available ? "success" : "error");
+    renderGuardianEvents(guardian.audit_events || []);
+  } catch (error) {
+    setStatusBox($("#guardian-status"), error.message, "error");
+    renderGuardianEvents([]);
+  }
+}
+
 async function loadStatus() {
   try {
     const [status, modelConfig] = await Promise.all([
@@ -716,6 +795,7 @@ async function loadStatus() {
     setConnection(true, status.pending_actions ? "Action approval pending" : "Local server connected");
     await loadModelConfiguration();
     await loadUpgradePrompts();
+    await loadGuardian();
   } catch (error) {
     setConnection(false, "Local bridge unavailable");
     ui.workspace.textContent = "Unavailable";
