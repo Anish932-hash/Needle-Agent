@@ -84,20 +84,20 @@ class Agent911ToolContractTests(unittest.TestCase):
                 return FakeModel({"type": "respond", "function_calls": [], "success": True})
 
             fake_needle.Needle = fake_constructor
-            with patch.dict(sys.modules, {"needle": fake_needle}), \\
-                 patch.dict(os.environ, {}, clear=False), \\
-                 patch("needle_agent.agent911_core._BASELINE_NEEDLE_ENGINE", None), \\
-                 patch("needle_agent.agent911_core._ACTIVE_AGENT911_ENGINE_OVERRIDE", None):
-                os.environ.pop("NEEDLE3_LIB_PATH", None)
-                Agent911Core(workspace, weights=weights, engine_path=engine)
-                self.assertEqual(os.environ.get("NEEDLE3_LIB_PATH"), str(engine.resolve()))
-                self.assertIn("system_info", [fn.__name__ for fn in created[0]["tools"]])
-                self.assertTrue(created[0]["stateless"])
-                self.assertEqual(created[0]["weights"], str(weights))
+            with patch.dict(sys.modules, {"needle": fake_needle}):
+                with patch.dict(os.environ, {}, clear=False):
+                    with patch("needle_agent.agent911_core._BASELINE_NEEDLE_ENGINE", None):
+                        with patch("needle_agent.agent911_core._ACTIVE_AGENT911_ENGINE_OVERRIDE", None):
+                            os.environ.pop("NEEDLE3_LIB_PATH", None)
+                            Agent911Core(workspace, weights=weights, engine_path=engine)
+                            self.assertEqual(os.environ.get("NEEDLE3_LIB_PATH"), str(engine.resolve()))
+                            self.assertIn("system_info", [fn.__name__ for fn in created[0]["tools"]])
+                            self.assertTrue(created[0]["stateless"])
+                            self.assertEqual(created[0]["weights"], str(weights))
 
-                Agent911Core(workspace, weights=weights, engine_path=None)
-                self.assertNotIn("NEEDLE3_LIB_PATH", os.environ)
-                self.assertEqual(len(created), 2)
+                            Agent911Core(workspace, weights=weights, engine_path=None)
+                            self.assertNotIn("NEEDLE3_LIB_PATH", os.environ)
+                            self.assertEqual(len(created), 2)
 
     def test_live_model_output_is_returned_without_dispatch(self):
         with tempfile.TemporaryDirectory() as temp:
