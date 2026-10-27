@@ -31,7 +31,7 @@ _PRIVATE_STORES = (
 )
 
 _EXPLICIT_EXECUTION = re.compile(
-    r"\b(run|execute|launch|start|shell|terminal|command|script|compile|build|test|install)\b",
+    r"\b(run|execute|launch|start|compile|build|test|install)\b",
     re.IGNORECASE,
 )
 _BLOCKED_SHELL = (
